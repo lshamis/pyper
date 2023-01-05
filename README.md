@@ -5,7 +5,7 @@ The `py` script makes bash hacking easier by allowing python expressions to be i
 
 
 For example, you can help get pids for Xorg processes:
-```
+```sh
 $ ps aux | grep Xorg | py 'x.split()[1]'
 24723
 24992
@@ -14,25 +14,25 @@ $ ps aux | grep Xorg | py 'x.split()[1]'
 Normally `py` assumes independent strings from it's predecessor, but can also work on `xargs`, as a `List[str]`.
 
 For example, you can a count of how many processes are run by different users on the machine with:
-```
+```sh
 $ ps aux | py 'x.split()[0]' | xargs py 'collections.Counter(x)'
 Counter({'root': 254, 'lshamis': 187, 'dbus': 2, 'td-agent': 2, 'avahi': 2, 'USER': 1, 'polkitd': 1, 'rtkit': 1, 'chrony': 1, 'colord': 1, 'nobody': 1, 'dnsmasq': 1, 'systemd+': 1})
 ```
 
 For simple commands, where the evaluation if of the form `expr(value)` or `value(expr)`, you don't need to be explicit with the call. For example:
-```
+```sh
 $ ps aux | py 'x.split()[0]' | xargs py collections.Counter
 Counter({'root': 254, 'lshamis': 187, 'dbus': 2, 'td-agent': 2, 'avahi': 2, 'USER': 1, 'polkitd': 1, 'rtkit': 1, 'chrony': 1, 'colord': 1, 'nobody': 1, 'dnsmasq': 1, 'systemd+': 1})
 ```
 
 You can chain multiple commands together with `--then` or `-t`. This is particularly useful if the intermediate types are not easily piped.
-```
+```sh
 $ ps aux | py split -t 'x[0]' | xargs py collections.Counter -t most_common
 [('root', 257), ('lshamis', 189), ('dbus', 2), ('td-agent', 2), ('avahi', 2), ('USER', 1), ('polkitd', 1), ('rtkit', 1), ('chrony', 1), ('colord', 1), ('nobody', 1), ('dnsmasq', 1), ('systemd+', 1)]
 ```
 
 To support piping, `xargs` and `unxargs` are valid expressions, that convert from multiple independent inputs, to a list, and visa-versa:
-```
+```sh
 $ ps aux | py split -t 'x[0]' -t xargs -t collections.Counter -t most_common -t unxargs
 ('root', 258)
 ('lshamis', 190)
@@ -50,7 +50,7 @@ $ ps aux | py split -t 'x[0]' -t xargs -t collections.Counter -t most_common -t 
 ```
 
 Boolean expressions act as filters unless `--show-bool` is included:
-```
+```sh
 $ ls / | py 'len(x) > 3'
 boot
 home
@@ -85,7 +85,7 @@ False
 Copy the `py` file into any place in your PATH.
 
 Optionally copy the `extra_symbols.py` file into `~/.config/py/extra_symbols.py`. Doing so will first class symbols in common modules, prefixed by an `_`. For example:
-```
+```sh
 $ py _digits
 0123456789
 $ py _random
@@ -104,7 +104,7 @@ World!
 ```
 
 ### Help:
-```
+```sh
 $ py --help
 usage: py [-h] [-t THEN] [-e] [-b] [-n] expr [xargs [xargs ...]]
 
