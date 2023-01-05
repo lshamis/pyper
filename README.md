@@ -81,6 +81,28 @@ True
 False
 ```
 
+### Installation:
+Copy the `py` file into any place in your PATH.
+
+Optionally copy the `extra_symbols.py` file into `~/.config/py/extra_symbols.py`. Doing so will first class symbols in common modules, prefixed by an `_`. For example:
+```
+$ py _digits
+0123456789
+$ py _random
+0.48314627566684964
+$ py _pi
+3.141592653589793
+$ ls | py _abspath
+/home/lshamis/github/lshamis/pyper/extra_symbols.py
+/home/lshamis/github/lshamis/pyper/py
+/home/lshamis/github/lshamis/pyper/README.md
+$ echo 'Hello, World!' | py '_shorten(x, width=12)'
+Hello, [...]
+$ echo 'Hello, World!' | py '_wrap(x, width=12)' -t unxargs
+Hello,
+World!
+```
+
 ### Help:
 ```
 $ py --help

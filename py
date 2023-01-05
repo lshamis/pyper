@@ -65,6 +65,8 @@ class Context:
         self.try_load_symbols("~/.config/py/extra_symbols.py")
 
     def eval_code(self, code, value=Skip, **extra_symbols):
+        seen_imports = set()
+
         while True:
             try:
                 # Try value.code()
@@ -82,18 +84,23 @@ class Context:
 
                 return result
             except NameError as err:
-                module_match = re.match("name '(\w+)' is not defined", str(err))
-                if module_match and try_import(module_match.group(1)):
-                    continue
+                module_match = re.match("name '(\w*)' is not defined", str(err))
+                if module_match:
+                    module_name = module_match.group(1)
+                    if module_name not in seen_imports and try_import(module_name):
+                        seen_imports.add(module_name)
+                        continue
                 self.had_err = 1
                 return err
             except AttributeError as err:
                 submodule_match = re.match(
-                    "module '([\w.]+)' has no attribute '(\w+)'", str(err)
+                    "module '([\w.]*)' has no attribute '(\w*)'", str(err)
                 )
                 if submodule_match:
                     module_name, submodule_name = submodule_match.groups()
-                    if try_import(f"{module_name}.{submodule_name}"):
+                    full_module_name = f"{module_name}.{submodule_name}"
+                    if full_module_name not in seen_imports and try_import(full_module_name):
+                        seen_imports.add(full_module_name)
                         continue
                 self.had_err = 1
                 return err
@@ -151,6 +158,9 @@ class ManyValueHandler:
     def eval(self, code):
         if code == "xargs":
             return OneValueHandler(self.ctx, self.values)
+        if code == "unxargs":
+            assert len(self.values) == 1
+            return ManyValueHandler(self.ctx, self.values[0], self.indexes)
 
         if isinstance(self.values, Exception):
             return self
