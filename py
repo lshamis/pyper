@@ -64,20 +64,21 @@ class Context:
 
         self.try_load_symbols("~/.config/py/extra_symbols.py")
 
-    def eval_code(self, code, value=None, **extra_symbols):
+    def eval_code(self, code, value=Skip, **extra_symbols):
         while True:
             try:
                 # Try value.code()
-                attr = getattr(value, code, Skip)
-                if attr is not Skip:
-                    return attr() if callable(attr) else attr
+                if value is not Skip:
+                    attr = getattr(value, code, Skip)
+                    if attr is not Skip:
+                        return attr() if callable(attr) else attr
 
                 # Execute code.
                 result = eval(code, self.get_symbols(**extra_symbols))
 
                 # Try code(value)
                 if callable(result):
-                    result = result(value)
+                    result = result() if value is Skip else result(value)
 
                 return result
             except NameError as err:
