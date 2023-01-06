@@ -160,7 +160,7 @@ class ManyValueHandler:
             return OneValueHandler(self.ctx, self.values)
         if code == "unxargs":
             assert len(self.values) == 1
-            return ManyValueHandler(self.ctx, self.values[0], self.indexes)
+            return ManyValueHandler(self.ctx, self.values[0])
 
         if isinstance(self.values, Exception):
             return self
