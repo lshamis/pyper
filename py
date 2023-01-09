@@ -8,6 +8,7 @@ import random
 import re
 import string
 import sys
+import typing
 
 
 class Skip:
@@ -158,13 +159,26 @@ def code_mutator(ctx, instream, code):
 
 
 def xargs(instream):
-    yield Value([val.x for val in instream])
+    yield Value([
+        val.x
+        for val in instream
+        if val.x is not Skip
+    ])
 
 
 def unxargs(instream):
-    output_values = next(instream).x
-    for x in output_values:
-        yield Value(x)
+    try:
+        value = next(instream)
+    except StopIteration:
+        return
+
+    if not isinstance(value.x, typing.Iterable):
+        yield value
+        return
+
+    for x in value.x:
+        if x is not Skip:
+            yield Value(x)
 
 
 def select_mutator(ctx, instream, code):
@@ -178,6 +192,9 @@ def select_mutator(ctx, instream, code):
 
 def print_stream(ctx, stream):
     for val in stream:
+        if val.x is Skip:
+            continue
+
         # Errors defaults to filtering out the entry, unless args.show_error.
         if isinstance(val.x, Exception):
             if ctx.args.show_error:
