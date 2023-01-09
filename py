@@ -90,10 +90,15 @@ class Value:
             symbols=kwargs.get("symbols", self.symbols),
         )
 
-    def all_symbols(self, ctx):
+    def general_symbols(self, ctx):
         return {
             **ctx.user_symbols(),
             **ctx.module_symbols(),
+        }
+
+    def all_symbols(self, ctx):
+        return {
+            **self.general_symbols(ctx),
             **self.symbols,
             **({"x": self.x} if self.x is not Skip else {}),
             **({"i": self.i} if self.i is not Skip else {}),
@@ -120,7 +125,7 @@ def eval_code(ctx, value, code):
             if callable(result):
                 result = result() if value.x is Skip else result(value.x)
 
-            base_symbols = value.all_symbols(ctx)
+            base_symbols = value.general_symbols(ctx)
             new_symbols = {
                 name: sym
                 for name, sym in symbols.items()
