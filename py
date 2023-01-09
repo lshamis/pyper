@@ -83,7 +83,14 @@ class Value:
         self.i = i
         self.symbols = symbols if symbols is not Skip else {}
 
-    def get_symbols(self, ctx):
+    def but_with(self, **kwargs):
+        return Value(
+            x=kwargs.get("x", self.x),
+            i=kwargs.get("i", self.i),
+            symbols=kwargs.get("symbols", self.symbols),
+        )
+
+    def all_symbols(self, ctx):
         return {
             **ctx.user_symbols(),
             **ctx.module_symbols(),
@@ -100,10 +107,10 @@ def eval_code(ctx, value, code):
             if value.x is not Skip:
                 attr = getattr(value.x, code, Skip)
                 if attr is not Skip:
-                    return Value(attr() if callable(attr) else attr, value.i)
+                    return value.but_with(x=attr() if callable(attr) else attr)
 
             # Execute code.
-            symbols = value.get_symbols(ctx)
+            symbols = value.all_symbols(ctx)
             try:
                 result = eval(code, symbols)
             except SyntaxError:
@@ -113,21 +120,21 @@ def eval_code(ctx, value, code):
             if callable(result):
                 result = result() if value.x is Skip else result(value.x)
 
-            base_symbols = value.get_symbols(ctx)
+            base_symbols = value.all_symbols(ctx)
             new_symbols = {
                 name: sym
                 for name, sym in symbols.items()
                 if name not in base_symbols and not name.startswith("__")
             }
             value.symbols = {**value.symbols, **new_symbols}
-            return Value(x=result, i=value.i, symbols=value.symbols)
+            return value.but_with(x=result)
         except NameError as err:
             module_match = re.match("name '(\w*)' is not defined", str(err))
             if module_match:
                 if new_import_successful(module_match.group(1)):
                     continue
             ctx.had_err = 1
-            return Value(x=err, i=value.i, symbols=value.symbols)
+            return value.but_with(x=err)
         except AttributeError as err:
             submodule_match = re.match(
                 "module '([\w.]*)' has no attribute '(\w*)'", str(err)
@@ -137,10 +144,10 @@ def eval_code(ctx, value, code):
                 if new_import_successful(f"{module_name}.{submodule_name}"):
                     continue
             ctx.had_err = 1
-            return Value(x=err, i=value.i, symbols=value.symbols)
+            return value.but_with(x=err)
         except Exception as err:
             ctx.had_err = 1
-            return Value(x=err, i=value.i, symbols=value.symbols)
+            return value.but_with(x=err)
 
 
 def input_stream():
@@ -149,7 +156,7 @@ def input_stream():
         return
 
     for i, x in enumerate(sys.stdin):
-        yield Value(x.rstrip("\n"), i)
+        yield Value(x=x.rstrip("\n"), i=i)
 
 
 def code_mutator(ctx, instream, code):
@@ -203,7 +210,7 @@ def unxargs(instream):
 
     for x in value.x:
         if x is not Skip:
-            yield Value(x)
+            yield value.but_with(x=x, i=Skip)
 
 
 def select_mutator(ctx, instream, code):
