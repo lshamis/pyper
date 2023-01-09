@@ -21,6 +21,15 @@ def try_import(module_name):
         return None
 
 
+def new_import_successful(module_name, seen=set()):
+    if module_name in seen:
+        return False
+    if not try_import(module_name):
+        return False
+    seen.add(module_name)
+    return True
+
+
 class Context:
     def __init__(self, args):
         self.args = args
@@ -64,162 +73,121 @@ class Context:
 
         self.try_load_symbols("~/.config/py/extra_symbols.py")
 
-    def eval_code(self, code, value=Skip, **extra_symbols):
-        seen_imports = set()
 
-        while True:
-            try:
-                # Try value.code()
-                if value is not Skip:
-                    attr = getattr(value, code, Skip)
-                    if attr is not Skip:
-                        return attr() if callable(attr) else attr
-
-                # Execute code.
-                result = eval(code, self.get_symbols(**extra_symbols))
-
-                # Try code(value)
-                if callable(result):
-                    result = result() if value is Skip else result(value)
-
-                return result
-            except NameError as err:
-                module_match = re.match("name '(\w*)' is not defined", str(err))
-                if module_match:
-                    module_name = module_match.group(1)
-                    if module_name not in seen_imports and try_import(module_name):
-                        seen_imports.add(module_name)
-                        continue
-                self.had_err = 1
-                return err
-            except AttributeError as err:
-                submodule_match = re.match(
-                    "module '([\w.]*)' has no attribute '(\w*)'", str(err)
-                )
-                if submodule_match:
-                    module_name, submodule_name = submodule_match.groups()
-                    full_module_name = f"{module_name}.{submodule_name}"
-                    if full_module_name not in seen_imports and try_import(full_module_name):
-                        seen_imports.add(full_module_name)
-                        continue
-                self.had_err = 1
-                return err
-            except Exception as err:
-                self.had_err = 1
-                return err
+class Value:
+    def __init__(self, x=Skip, i=Skip):
+        self.x = x
+        self.i = i
 
 
-class NoValueHandler:
-    def __init__(self, ctx):
-        self.ctx = ctx
+def eval_code(ctx, value, code):
+    extra_symbols = {
+        name: sym
+        for name, sym in {"x": value.x, "i": value.i}.items()
+        if sym is not Skip
+    }
 
-    def eval(self, code):
-        return OneValueHandler(self.ctx, self.ctx.eval_code(code))
+    while True:
+        try:
+            # Try x.code()
+            if value.x is not Skip:
+                attr = getattr(value.x, code, Skip)
+                if attr is not Skip:
+                    return Value(attr() if callable(attr) else attr, value.i)
 
-    def print(self):
-        pass
+            # Execute code.
+            result = eval(code, ctx.get_symbols(**extra_symbols))
+
+            # Try code(x)
+            if callable(result):
+                result = result() if value.x is Skip else result(value.x)
+
+            return Value(result, value.i)
+        except NameError as err:
+            module_match = re.match("name '(\w*)' is not defined", str(err))
+            if module_match:
+                if new_import_successful(module_match.group(1)):
+                    continue
+            ctx.had_err = 1
+            return Value(err, value.i)
+        except AttributeError as err:
+            submodule_match = re.match(
+                "module '([\w.]*)' has no attribute '(\w*)'", str(err)
+            )
+            if submodule_match:
+                module_name, submodule_name = submodule_match.groups()
+                if new_import_successful(f"{module_name}.{submodule_name}"):
+                    continue
+            ctx.had_err = 1
+            return Value(err, value.i)
+        except Exception as err:
+            ctx.had_err = 1
+            return Value(err, value.i)
 
 
-class OneValueHandler:
-    def __init__(self, ctx, value):
-        self.ctx = ctx
-        self.value = value
+def input_stream():
+    if sys.stdin.isatty():
+        yield Value()
+        return
 
-    def eval(self, code):
-        if code == "unxargs":
-            return ManyValueHandler(self.ctx, self.value)
+    for i, x in enumerate(sys.stdin):
+        yield Value(x.rstrip("\n"), i)
 
-        if isinstance(self.value, Exception):
-            return self
 
-        return OneValueHandler(
-            self.ctx, self.ctx.eval_code(code, value=self.value, x=self.value)
-        )
+def code_mutator(ctx, instream, code):
+    for val in instream:
+        if isinstance(val.x, Exception):
+            yield val
+            continue
 
-    def print(self):
+        new_val = eval_code(ctx, val, code)
+
+        if isinstance(new_val.x, Exception):
+            if ctx.args.show_error:
+                yield new_val
+        elif new_val.x is None:
+            if ctx.args.show_none:
+                yield new_val
+        elif type(new_val.x) is bool:
+            if ctx.args.show_bool:
+                yield new_val
+            elif new_val.x:
+                yield val
+        else:
+            yield new_val
+
+
+def xargs(instream):
+    yield Value([val.x for val in instream])
+
+
+def unxargs(instream):
+    output_values = next(instream).x
+    for x in output_values:
+        yield Value(x)
+
+
+def select_mutator(ctx, instream, code):
+    if code == "xargs":
+        return xargs(instream)
+    elif code == "unxargs":
+        return unxargs(instream)
+    else:
+        return code_mutator(ctx, instream, code)
+
+
+def print_stream(ctx, stream):
+    for val in stream:
         # Errors defaults to filtering out the entry, unless args.show_error.
-        if isinstance(self.value, Exception):
-            if self.ctx.args.show_error:
-                print(self.value)
+        if isinstance(val.x, Exception):
+            if ctx.args.show_error:
+                print(val.x)
         # None defaults to filtering out the entry, unless args.show_none.
-        elif self.value is None:
-            if self.ctx.args.show_none:
-                print(self.value)
+        elif val.x is None:
+            if ctx.args.show_none:
+                print(val.x)
         else:
-            print(self.value)
-
-
-class ManyValueHandler:
-    def __init__(self, ctx, values, indexes=None):
-        self.ctx = ctx
-        self.values = values
-        self.indexes = indexes
-
-    def eval(self, code):
-        if code == "xargs":
-            return OneValueHandler(self.ctx, self.values)
-        if code == "unxargs":
-            assert len(self.values) == 1
-            return ManyValueHandler(self.ctx, self.values[0])
-
-        if isinstance(self.values, Exception):
-            return self
-
-        if self.indexes is None:
-            new_vals = [self._eval_one(code, val) for val in self.values]
-            new_vals = [nval for nval in new_vals if nval is not Skip]
-            return ManyValueHandler(self.ctx, new_vals)
-
-        new_vals = [
-            self._eval_one(code, val, idx)
-            for val, idx in zip(self.values, self.indexes)
-        ]
-
-        new_val_idx = [
-            (nval, idx) for nval, idx in zip(new_vals, self.indexes) if nval is not Skip
-        ]
-
-        if not new_val_idx:
-            return ManyValueHandler(self.ctx, [])
-
-        return ManyValueHandler(self.ctx, *zip(*new_val_idx))
-
-    def _eval_one(self, code, val, idx=None):
-        if isinstance(val, Exception):
-            if self.ctx.args.show_error:
-                return val
-        elif val is None:
-            if self.ctx.args.show_none:
-                return val
-        else:
-            local_symbols = {"x": val}
-            if idx:
-                local_symbols["i"] = idx
-            new_val = self.ctx.eval_code(code, value=val, **local_symbols)
-            if isinstance(new_val, Exception):
-                if self.ctx.args.show_error:
-                    return new_val
-            elif new_val is None:
-                if self.ctx.args.show_none:
-                    return new_val
-            elif type(new_val) is bool:
-                if self.ctx.args.show_bool:
-                    return new_val
-                elif new_val:
-                    return val
-            else:
-                return new_val
-
-        return Skip
-
-    def print(self):
-        if isinstance(self.values, Exception):
-            if self.ctx.args.show_error:
-                print(self.values)
-            return
-
-        for val in self.values:
-            OneValueHandler(self.ctx, val).print()
+            print(val.x)
 
 
 def main():
@@ -251,15 +219,10 @@ def main():
     ctx = Context(parser.parse_intermixed_args())
     ctx.load_user_symbols()
 
-    if sys.stdin.isatty():
-        value_handler = NoValueHandler(ctx)
-    else:
-        values = [val.rstrip("\n") for val in sys.stdin]
-        value_handler = ManyValueHandler(ctx, values, range(len(values)))
-
-    for expr in ctx.args.expr or []:
-        value_handler = value_handler.eval(expr)
-    value_handler.print()
+    stream = input_stream()
+    for expr in ctx.args.expr:
+        stream = select_mutator(ctx, stream, expr)
+    print_stream(ctx, stream)
 
     return 1 if ctx.had_err else 0
 

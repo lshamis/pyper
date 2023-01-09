@@ -37,7 +37,7 @@ import sys
         public_modules = {k: v for k, v in sys.modules.items() if not k.startswith("_")}
         while not name or name in sys.modules:
     if sys.stdin.isatty():
-        values = [val.rstrip("\n") for val in sys.stdin]
+    for i, x in enumerate(sys.stdin):
     sys.exit(main())
 ```
 
