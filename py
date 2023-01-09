@@ -136,7 +136,10 @@ def input_stream():
 
 
 def code_mutator(ctx, instream, code):
+    size = 0
     for val in instream:
+        size += 1
+
         if isinstance(val.x, Exception):
             yield val
             continue
@@ -157,13 +160,12 @@ def code_mutator(ctx, instream, code):
         else:
             yield new_val
 
+    if size == 1 and new_val.x is None and not ctx.args.show_none:
+        yield new_val
+
 
 def xargs(instream):
-    yield Value([
-        val.x
-        for val in instream
-        if val.x is not Skip
-    ])
+    yield Value([val.x for val in instream if val.x is not Skip])
 
 
 def unxargs(instream):
