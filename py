@@ -104,7 +104,10 @@ def eval_code(ctx, value, code):
 
             # Execute code.
             symbols = value.get_symbols(ctx)
-            result = eval(code, symbols)
+            try:
+                result = eval(code, symbols)
+            except SyntaxError:
+                result = exec(code, symbols)
 
             # Try code(x)
             if callable(result):
