@@ -37,9 +37,11 @@ class Context:
         self.had_err = False
         self._symbols = {}
 
-    def get_symbols(self, **kwargs):
-        public_modules = {k: v for k, v in sys.modules.items() if not k.startswith("_")}
-        return dict(public_modules, **self._symbols, **kwargs)
+    def user_symbols(self):
+        return self._symbols
+
+    def module_symbols(self):
+        return {k: v for k, v in sys.modules.items() if not k.startswith("_")}
 
     def _random_module_name(self):
         name = None
@@ -76,18 +78,22 @@ class Context:
 
 
 class Value:
-    def __init__(self, x=Skip, i=Skip):
+    def __init__(self, x=Skip, i=Skip, symbols=Skip):
         self.x = x
         self.i = i
+        self.symbols = symbols if symbols is not Skip else {}
+
+    def get_symbols(self, ctx):
+        return {
+            **ctx.user_symbols(),
+            **ctx.module_symbols(),
+            **self.symbols,
+            **({"x": self.x} if self.x is not Skip else {}),
+            **({"i": self.i} if self.i is not Skip else {}),
+        }
 
 
 def eval_code(ctx, value, code):
-    extra_symbols = {
-        name: sym
-        for name, sym in {"x": value.x, "i": value.i}.items()
-        if sym is not Skip
-    }
-
     while True:
         try:
             # Try x.code()
@@ -97,20 +103,28 @@ def eval_code(ctx, value, code):
                     return Value(attr() if callable(attr) else attr, value.i)
 
             # Execute code.
-            result = eval(code, ctx.get_symbols(**extra_symbols))
+            symbols = value.get_symbols(ctx)
+            result = eval(code, symbols)
 
             # Try code(x)
             if callable(result):
                 result = result() if value.x is Skip else result(value.x)
 
-            return Value(result, value.i)
+            base_symbols = value.get_symbols(ctx)
+            new_symbols = {
+                name: sym
+                for name, sym in symbols.items()
+                if name not in base_symbols and not name.startswith("__")
+            }
+            value.symbols = {**value.symbols, **new_symbols}
+            return Value(x=result, i=value.i, symbols=value.symbols)
         except NameError as err:
             module_match = re.match("name '(\w*)' is not defined", str(err))
             if module_match:
                 if new_import_successful(module_match.group(1)):
                     continue
             ctx.had_err = 1
-            return Value(err, value.i)
+            return Value(x=err, i=value.i, symbols=value.symbols)
         except AttributeError as err:
             submodule_match = re.match(
                 "module '([\w.]*)' has no attribute '(\w*)'", str(err)
@@ -120,10 +134,10 @@ def eval_code(ctx, value, code):
                 if new_import_successful(f"{module_name}.{submodule_name}"):
                     continue
             ctx.had_err = 1
-            return Value(err, value.i)
+            return Value(x=err, i=value.i, symbols=value.symbols)
         except Exception as err:
             ctx.had_err = 1
-            return Value(err, value.i)
+            return Value(x=err, i=value.i, symbols=value.symbols)
 
 
 def input_stream():
@@ -136,10 +150,7 @@ def input_stream():
 
 
 def code_mutator(ctx, instream, code):
-    size = 0
     for val in instream:
-        size += 1
-
         if isinstance(val.x, Exception):
             yield val
             continue
@@ -150,8 +161,7 @@ def code_mutator(ctx, instream, code):
             if ctx.args.show_error:
                 yield new_val
         elif new_val.x is None:
-            if ctx.args.show_none:
-                yield new_val
+            yield val
         elif type(new_val.x) is bool:
             if ctx.args.show_bool:
                 yield new_val
@@ -160,12 +170,22 @@ def code_mutator(ctx, instream, code):
         else:
             yield new_val
 
-    if size == 1 and new_val.x is None and not ctx.args.show_none:
-        yield new_val
-
 
 def xargs(instream):
-    yield Value([val.x for val in instream if val.x is not Skip])
+    x = []
+    symbols = Skip
+    for val in instream:
+        if val.x is not Skip:
+            x.append(val.x)
+        if val.symbols is not Skip:
+            if symbols is Skip:
+                symbols = dict(**val.symbols)
+            else:
+                for name, sym in val.symbols.items():
+                    if name in symbols and symbols[name] != sym:
+                        del symbols[name]
+
+    yield Value(x=x, symbols=symbols)
 
 
 def unxargs(instream):
