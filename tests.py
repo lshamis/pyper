@@ -151,7 +151,7 @@ def test_unxargs_empty():
 
     py_(
         ["unxargs"],
-        in_ = [],
+        in_=[],
     )
 
     py_(
