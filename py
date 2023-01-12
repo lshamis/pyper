@@ -25,9 +25,9 @@ def try_import(module_name):
 def new_import_successful(module_name, seen=set()):
     if module_name in seen:
         return False
+    seen.add(module_name)
     if not try_import(module_name):
         return False
-    seen.add(module_name)
     return True
 
 
@@ -41,7 +41,7 @@ class Context:
         return self._symbols
 
     def module_symbols(self):
-        return {k: v for k, v in sys.modules.items() if not k.startswith("_")}
+        return {k: v for k, v in sys.modules.items()}
 
     def _random_module_name(self):
         name = None
@@ -52,29 +52,20 @@ class Context:
         return name
 
     def load_symbols(self, path):
-        path = os.path.expanduser(path)
-        if not os.path.exists(path):
-            raise FileNotFoundError(path)
         module_name = self._random_module_name()
         spec = importlib.util.spec_from_file_location(module_name, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self._symbols.update(**module.__symbols__)
 
-    def try_load_symbols(self, path):
-        try:
-            self.load_symbols(path)
-            return True
-        except:
-            return False
-
     def load_user_symbols(self):
-        env_path = os.environ.get("PY_SYMBOL_FILEPATHS")
-        if env_path:
-            for path in env_path.split(":"):
+        env_path = os.environ.get(
+            "PY_SYMBOL_FILEPATHS", "~/.config/py/extra_symbols.py"
+        )
+        for path in env_path.split(":"):
+            path = os.path.expanduser(path)
+            if os.path.exists(path):
                 self.load_symbols(path)
-
-        self.try_load_symbols("~/.config/py/extra_symbols.py")
 
 
 class Value:
@@ -135,19 +126,19 @@ def eval_code(ctx, value, code):
             return value.but_with(x=result)
         except NameError as err:
             module_match = re.match("name '(\w*)' is not defined", str(err))
-            if module_match:
-                if new_import_successful(module_match.group(1)):
-                    continue
+            assert module_match
+            if new_import_successful(module_match.group(1)):
+                continue
             ctx.had_err = 1
             return value.but_with(x=err)
         except AttributeError as err:
             submodule_match = re.match(
                 "module '([\w.]*)' has no attribute '(\w*)'", str(err)
             )
-            if submodule_match:
-                module_name, submodule_name = submodule_match.groups()
-                if new_import_successful(f"{module_name}.{submodule_name}"):
-                    continue
+            assert submodule_match
+            module_name, submodule_name = submodule_match.groups()
+            if new_import_successful(f"{module_name}.{submodule_name}"):
+                continue
             ctx.had_err = 1
             return value.but_with(x=err)
         except Exception as err:
@@ -172,10 +163,7 @@ def code_mutator(ctx, instream, code):
 
         new_val = eval_code(ctx, val, code)
 
-        if isinstance(new_val.x, Exception):
-            if ctx.args.show_error:
-                yield new_val
-        elif new_val.x is None:
+        if new_val.x is None:
             yield val
         elif type(new_val.x) is bool:
             if ctx.args.show_bool:
@@ -192,13 +180,13 @@ def xargs(instream):
     for val in instream:
         if val.x is not Skip:
             x.append(val.x)
-        if val.symbols is not Skip:
-            if symbols is Skip:
-                symbols = dict(**val.symbols)
-            else:
-                for name, sym in val.symbols.items():
-                    if name in symbols and symbols[name] != sym:
-                        del symbols[name]
+
+        if symbols is Skip:
+            symbols = dict(**val.symbols)
+        else:
+            for name, sym in val.symbols.items():
+                if name in symbols and symbols[name] != sym:
+                    del symbols[name]
 
     yield Value(x=x, symbols=symbols)
 
@@ -214,8 +202,7 @@ def unxargs(instream):
         return
 
     for x in value.x:
-        if x is not Skip:
-            yield value.but_with(x=x, i=Skip)
+        yield value.but_with(x=x, i=Skip)
 
 
 def select_mutator(ctx, instream, code):
@@ -233,14 +220,7 @@ def print_stream(ctx, stream):
             continue
 
         # Errors defaults to filtering out the entry, unless args.show_error.
-        if isinstance(val.x, Exception):
-            if ctx.args.show_error:
-                print(val.x)
-        # None defaults to filtering out the entry, unless args.show_none.
-        elif val.x is None:
-            if ctx.args.show_none:
-                print(val.x)
-        else:
+        if not isinstance(val.x, Exception) or ctx.args.show_error:
             print(val.x)
 
 
@@ -263,12 +243,6 @@ def main():
         "--show-bool",
         action="store_true",
         help="Print bool values. Default is to use bool values as a filter.",
-    )
-    parser.add_argument(
-        "-n",
-        "--show-none",
-        action="store_true",
-        help="Print None values. Default is to use None as a filter.",
     )
     ctx = Context(parser.parse_intermixed_args())
     ctx.load_user_symbols()
