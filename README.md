@@ -99,7 +99,7 @@ World!
 ### Help:
 ```sh
 $ py --help
-usage: py [-h] [-e] [-b] [-n] expr [expr ...]
+usage: py [-h] [-e] [-b] expr [expr ...]
 
 positional arguments:
   expr              Expression to apply to all inputs.
@@ -108,5 +108,4 @@ options:
   -h, --help        show this help message and exit
   -e, --show-error  Print raised exceptions. Default is to skip.
   -b, --show-bool   Print bool values. Default is to use bool values as a filter.
-  -n, --show-none   Print None values. Default is to use None as a filter.
 ```
