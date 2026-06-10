@@ -39,6 +39,10 @@ def py_(
     assert proc.returncode == want_returncode
 
 
+def skipped(n):
+    return f"py: skipped {n} row(s) with errors; rerun with -e to see them.\n".encode()
+
+
 def test_noarg():
     py_(
         [],
@@ -180,6 +184,7 @@ def test_unxargs_empty():
 
     py_(
         ["5 / 0", "unxargs"],
+        want_err=skipped(1),
         want_returncode=1,
     )
 
@@ -244,6 +249,7 @@ def test_assignment_overwrite():
 def test_undefined_symbol():
     py_(
         ["foo"],
+        want_err=skipped(1),
         want_returncode=1,
     )
 
@@ -264,6 +270,7 @@ def test_undefined_symbol():
 def test_undefined_attribute():
     py_(
         ["email.message.spacerace"],
+        want_err=skipped(1),
         want_returncode=1,
     )
 
@@ -276,6 +283,7 @@ def test_attribute_error_on_value_does_not_crash():
     py_(
         ["x.fooo()"],
         in_=["hi"],
+        want_err=skipped(1),
         want_returncode=1,
     )
     py_(
@@ -289,6 +297,7 @@ def test_attribute_error_on_value_does_not_crash():
 def test_exception():
     py_(
         ["5 / 0"],
+        want_err=skipped(1),
         want_returncode=1,
     )
 
@@ -302,6 +311,7 @@ def test_exception():
         ["int", "1 / x", "1 / x"],
         in_=["0", "4", "8"],
         want_out=b"4.0\n8.0\n",
+        want_err=skipped(1),
         want_returncode=1,
     )
 
@@ -311,6 +321,19 @@ def test_exception():
         want_out=b"division by zero\n4.0\n8.0\n",
         want_returncode=1,
     )
+
+
+def test_auto_import_does_not_double_evaluate(tmp_path):
+    # Regression: auto-import used to work by catching NameError and
+    # re-evaluating the expression, repeating any side effects that ran
+    # before the failing name. Modules are now imported up front.
+    marker = tmp_path / "marker"
+    py_(
+        [f'open("{marker}", "a").write("!") and wave.__name__'],
+        in_=["row"],
+        want_out=b"wave\n",
+    )
+    assert marker.read_text() == "!"
 
 
 def test_user_symbols():

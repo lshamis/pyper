@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import ast
+import builtins
 import importlib
 import importlib.util
 import os
@@ -8,6 +10,7 @@ import random
 import re
 import string
 import sys
+import types
 import typing
 
 
@@ -29,6 +32,37 @@ def new_import_successful(module_name, seen=set()):
     if not try_import(module_name):
         return False
     return True
+
+
+def dotted_name_candidates(code):
+    """Names (and dotted attribute chains rooted at names) read by `code`.
+
+    E.g. "json.dumps(x)" -> {"json", "json.dumps", "x"}.
+    """
+    try:
+        tree = ast.parse(code, mode="eval")
+    except SyntaxError:
+        try:
+            tree = ast.parse(code, mode="exec")
+        except SyntaxError:
+            return set()
+
+    candidates = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            parts = []
+            cur = node
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name) and isinstance(cur.ctx, ast.Load):
+                parts.append(cur.id)
+                parts.reverse()
+                for k in range(1, len(parts) + 1):
+                    candidates.add(".".join(parts[:k]))
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            candidates.add(node.id)
+    return candidates
 
 
 class Context:
@@ -68,6 +102,40 @@ class Context:
 
     def add_module(self, name):
         self.base_symbols()[name] = sys.modules[name]
+
+    def preimport(self, code):
+        """Import modules referenced by `code` before it is first evaluated.
+
+        Without this, missing modules are resolved by catching NameError and
+        re-evaluating the expression, which repeats any side effects that ran
+        before the failing name. Resolving the expression's own (static)
+        names up front means that retry path almost never fires. Done once
+        per expression, not per row.
+        """
+        base = self.base_symbols()
+        for name in sorted(dotted_name_candidates(code)):
+            parts = name.split(".")
+            if parts[0] in ("x", "i") or hasattr(builtins, parts[0]):
+                continue
+            if len(parts) == 1:
+                if name not in base and new_import_successful(name):
+                    self.add_module(name)
+                continue
+            # Dotted chain: import submodules for attributes that don't
+            # resolve (mirrors the runtime AttributeError retry).
+            obj = base.get(parts[0], Skip)
+            prefix = parts[0]
+            for attr in parts[1:]:
+                if not isinstance(obj, types.ModuleType):
+                    break
+                prefix += "." + attr
+                nxt = getattr(obj, attr, Skip)
+                if nxt is Skip:
+                    new_import_successful(prefix)
+                    nxt = getattr(obj, attr, Skip)
+                if nxt is Skip:
+                    break
+                obj = nxt
 
     def _random_module_name(self):
         name = None
@@ -231,17 +299,28 @@ def select_mutator(ctx, instream, code):
     elif code == "unxargs":
         return unxargs(instream)
     else:
+        ctx.preimport(code)
         return code_mutator(ctx, instream, code)
 
 
 def print_stream(ctx, stream):
+    skipped_errors = 0
     for val in stream:
         if val.x is Skip:
             continue
 
-        # Errors defaults to filtering out the entry, unless args.show_error.
-        if not isinstance(val.x, Exception) or ctx.args.show_error:
-            print(val.x)
+        # Errors default to filtering out the entry, unless args.show_error.
+        if isinstance(val.x, Exception) and not ctx.args.show_error:
+            skipped_errors += 1
+            continue
+        print(val.x)
+
+    if skipped_errors:
+        print(
+            f"py: skipped {skipped_errors} row(s) with errors;"
+            " rerun with -e to see them.",
+            file=sys.stderr,
+        )
 
 
 def main():
