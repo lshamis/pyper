@@ -55,6 +55,17 @@
 - [ ] Install `extra_symbols.py` as package data with a post-install hint, so
       it doesn't need to be hand-copied to `~/.config/py/`.
 
+## Rejected (with data — don't re-add without new evidence)
+- **`-j/--jobs` threaded row evaluation.** Built, benchmarked, reverted
+  2026-06-10 (see e1eeef0 / revert). Numbers on a GIL build: CPU-bound rows
+  ~11x slower with threads; reading+splitting 275MB of files was 2x slower
+  with -j16 even with a *cold* ext4 cache (NVMe readahead hides IO; decode and
+  split dominate). Only genuinely latency-bound rows won (HTTP @ 50ms: 7x).
+  Verdict: users would assume "more jobs = faster" without benchmarking and
+  pessimize the common case; the one winning workload is niche. Revisit only
+  for free-threaded Python, where CPU-bound rows would actually parallelize.
+  For IO-bound one-offs, `xargs -P` around `py` remains a workaround.
+
 ## P4 — project hygiene
 - [ ] CI (GitHub Actions): pytest across supported Pythons (3.9–3.14) + a lint
       step (ruff).
