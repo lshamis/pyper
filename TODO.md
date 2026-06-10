@@ -20,10 +20,16 @@
       + lazily auto-imported modules) copied once per eval, key-diff for
       assignment detection, cached compiled code objects, identity shortcut in
       the xargs symbol merge. 100k rows of `int(x)+1`: 2.1s -> 0.78s.
-- [ ] Remaining per-row cost is the `dict(base)` copy (O(|base|), ~250
-      entries with extra_symbols loaded). Could be eliminated by evaluating in
-      a shared namespace and rolling back new keys, at the cost of trickier
-      isolation semantics. Only worth it if multi-100k-row pipes feel slow.
+- [x] **Per-row symbol bookkeeping.** (Fixed 2026-06-10.) The key-set diff and
+      but_with plumbing are gone; new symbols are read off the dict tail only
+      when eval grew the namespace. 100k rows of `int(x)+1`: 0.31s (was 2.1s
+      at the start of the effort); `'y=int(x)' 'y'`: 0.60s (was 4.0s).
+- [ ] What's left per row: one C-level `dict(base)` copy (~1us) and
+      generator/interpreter overhead. Investigated and rejected: dict-subclass
+      globals with `__missing__` fallback (defeats LOAD_GLOBAL inline caches —
+      eval itself gets ~6x slower, a net wash); shared mutable namespace with
+      journal/rollback (breaks lazy closures/genexps that outlive their row).
+      Revisit only if someone actually streams millions of rows.
 
 ## P3 — features
 - [ ] `--strict` flag: any row error aborts (or poisons aggregates) instead of
