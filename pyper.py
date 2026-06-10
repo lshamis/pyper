@@ -281,8 +281,8 @@ def eval_code(ctx, value, code):
             return value.but_with(x=err)
 
 
-def input_stream():
-    if sys.stdin.isatty():
+def input_stream(ctx):
+    if ctx.args.no_input or sys.stdin.isatty():
         yield Value()
         return
 
@@ -389,7 +389,7 @@ def print_stream(ctx, stream):
         )
 
 
-USAGE = "usage: py [-h] [--version] [-e] [-b] expr [expr ...]"
+USAGE = "usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]"
 HELP = f"""{USAGE}
 
 positional arguments:
@@ -402,16 +402,20 @@ options:
                     skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a
                     filter.
+  -n, --no-input    Ignore stdin and evaluate the expressions once (useful
+                    under cron/subprocesses where stdin is a pipe but not
+                    meant as input).
 """
 
 
 class Args:
-    __slots__ = ("expr", "show_bool", "show_error")
+    __slots__ = ("expr", "no_input", "show_bool", "show_error")
 
     def __init__(self):
         self.expr = []
         self.show_error = False
         self.show_bool = False
+        self.no_input = False
 
 
 def usage_error(message):
@@ -440,6 +444,8 @@ def parse_args(argv):
             args.show_error = True
         elif tok == "--show-bool":
             args.show_bool = True
+        elif tok == "--no-input":
+            args.no_input = True
         elif tok.startswith("--"):
             usage_error(f"unrecognized arguments: {tok}")
         else:
@@ -451,6 +457,8 @@ def parse_args(argv):
                     args.show_error = True
                 elif char == "b":
                     args.show_bool = True
+                elif char == "n":
+                    args.no_input = True
                 else:
                     usage_error(f"unrecognized arguments: {tok}")
     if not args.expr:
@@ -461,7 +469,7 @@ def parse_args(argv):
 def main():
     ctx = Context(parse_args(sys.argv[1:]))
 
-    stream = input_stream()
+    stream = input_stream(ctx)
     for expr in ctx.args.expr:
         stream = select_mutator(ctx, stream, expr)
     try:

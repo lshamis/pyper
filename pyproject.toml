@@ -17,6 +17,9 @@ Homepage = "https://github.com/lshamis/pyper"
 [project.scripts]
 py = "pyper:main"
 
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
 [tool.setuptools]
 py-modules = ["pyper"]
 

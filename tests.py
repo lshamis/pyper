@@ -46,7 +46,7 @@ def skipped(n):
 def test_noarg():
     py_(
         [],
-        want_err=b"""usage: py [-h] [--version] [-e] [-b] expr [expr ...]
+        want_err=b"""usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]
 py: error: the following arguments are required: expr
 """,
         want_returncode=2,
@@ -59,7 +59,7 @@ def test_help():
     py_(
         ["-h"],
         want_out_contains=[
-            b"usage: py [-h] [--version] [-e] [-b] expr [expr ...]",
+            b"usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]",
             b"Expression to apply to all inputs.",
             b"--show-error",
             b"--show-bool",
@@ -73,6 +73,15 @@ def test_version():
     py_(
         ["--version"],
         want_out=f"py {pyper.__version__}\n".encode(),
+    )
+
+
+def test_no_input():
+    # Even with stdin being a pipe full of rows, -n evaluates exactly once.
+    py_(
+        ["-n", "1 + 1"],
+        in_=["10", "20", "30"],
+        want_out=b"2\n",
     )
 
 

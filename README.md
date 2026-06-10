@@ -106,7 +106,7 @@ World!
 ### Help:
 ```sh
 $ py --help
-usage: py [-h] [--version] [-e] [-b] expr [expr ...]
+usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]
 
 positional arguments:
   expr              Expression to apply to all inputs.
@@ -116,4 +116,5 @@ options:
   --version         show program's version number and exit
   -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a filter.
+  -n, --no-input    Ignore stdin and evaluate the expressions once.
 ```
