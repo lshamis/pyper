@@ -40,6 +40,12 @@
       Revisit only if someone actually streams millions of rows.
 
 ## P3 — features
+- [x] **Parallel row evaluation.** (Added 2026-06-10.) `-j/--jobs N` runs
+      expression segments in a thread pool with order-preserving bounded
+      submission. Deliberately opt-in: on GIL builds threads are ~11x slower
+      for CPU-bound expressions and ~12x faster for IO-bound ones, so an
+      automatic rows>N heuristic would pessimize the common case. Revisit a
+      smarter default if/when free-threaded Python becomes the norm.
 - [ ] `--strict` flag: any row error aborts (or poisons aggregates) instead of
       dropping the row. The permissive default can make a partial xargs
       aggregate look complete to a downstream tool that ignores exit codes.
