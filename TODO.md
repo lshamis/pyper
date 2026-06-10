@@ -26,6 +26,11 @@
       isolation semantics. Only worth it if multi-100k-row pipes feel slow.
 
 ## P3 — features
+- [ ] `--strict` flag: any row error aborts (or poisons aggregates) instead of
+      dropping the row. The permissive default can make a partial xargs
+      aggregate look complete to a downstream tool that ignores exit codes.
+- [ ] Error rows that pass through `unxargs` lose their row index (`i` is
+      reset); consider carrying source-row provenance for better -e messages.
 - [ ] `-n` / no-stdin flag for pure generation (currently relies on
       `isatty()`, which misbehaves under subprocess/cron where stdin is a pipe
       but empty-by-intent).
