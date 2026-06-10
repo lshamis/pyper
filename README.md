@@ -113,6 +113,6 @@ positional arguments:
 
 options:
   -h, --help        show this help message and exit
-  -e, --show-error  Print raised exceptions. Default is to skip.
+  -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a filter.
 ```

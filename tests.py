@@ -135,7 +135,8 @@ def test_xargs_passes_errors_through():
     py_(
         ["-e", "int", "1 / x", "xargs", "len"],
         in_=["0", "4", "8"],
-        want_out=b"division by zero\n2\n",
+        want_out=b"2\n",
+        want_err=b"py: row 0: ZeroDivisionError: division by zero\n",
         want_returncode=1,
     )
 
@@ -157,7 +158,7 @@ def test_xargs_symbols():
     py_(
         ["-e", "a=0", "b=x", "1", "xargs", "b"],
         in_=["5", "7", "3", "4"],
-        want_out=b"name 'b' is not defined\n",
+        want_err=b"py: NameError: name 'b' is not defined\n",
         want_returncode=1,
     )
 
@@ -166,6 +167,27 @@ def test_unxargs():
     py_(
         ["5", "range", "unxargs"],
         want_out=b"0\n1\n2\n3\n4\n",
+    )
+
+
+def test_unxargs_flattens_every_row():
+    # Regression: unxargs used to consume only the first row and silently
+    # drop the rest of the stream.
+    py_(
+        ["split", "unxargs"],
+        in_=["a b", "c d"],
+        want_out=b"a\nb\nc\nd\n",
+    )
+
+
+def test_unxargs_passes_errors_through():
+    # An error row must not stop later rows from being flattened.
+    py_(
+        ["int", "1 / x", "list(range(int(2 * x)))", "unxargs"],
+        in_=["0", "1"],
+        want_out=b"0\n1\n",
+        want_err=skipped(1),
+        want_returncode=1,
     )
 
 
@@ -273,14 +295,15 @@ def test_undefined_symbol():
 
     py_(
         ["-e", "foo"],
-        want_out=b"name 'foo' is not defined\n",
+        want_err=b"py: NameError: name 'foo' is not defined\n",
         want_returncode=1,
     )
 
     py_(
         ["-e", "foo"],
         in_=["3", "4"],
-        want_out=b"name 'foo' is not defined\nname 'foo' is not defined\n",
+        want_err=b"py: row 0: NameError: name 'foo' is not defined\n"
+        b"py: row 1: NameError: name 'foo' is not defined\n",
         want_returncode=1,
     )
 
@@ -307,7 +330,8 @@ def test_attribute_error_on_value_does_not_crash():
     py_(
         ["-e", "x.fooo()"],
         in_=["hi"],
-        want_out=b"'str' object has no attribute 'fooo'\n",
+        want_err=b"py: row 0: AttributeError:"
+        b" 'str' object has no attribute 'fooo'\n",
         want_returncode=1,
     )
 
@@ -321,7 +345,7 @@ def test_exception():
 
     py_(
         ["-e", "5 / 0"],
-        want_out=b"division by zero\n",
+        want_err=b"py: ZeroDivisionError: division by zero\n",
         want_returncode=1,
     )
 
@@ -336,7 +360,8 @@ def test_exception():
     py_(
         ["-e", "int", "1 / x", "1 / x"],
         in_=["0", "4", "8"],
-        want_out=b"division by zero\n4.0\n8.0\n",
+        want_out=b"4.0\n8.0\n",
+        want_err=b"py: row 0: ZeroDivisionError: division by zero\n",
         want_returncode=1,
     )
 

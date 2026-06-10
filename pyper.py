@@ -284,19 +284,17 @@ def xargs(instream):
 
 
 def unxargs(instream):
-    try:
-        value = next(instream)
-    except StopIteration:
-        return
+    for value in instream:
+        # Non-iterables (including error rows) pass through unchanged.
+        # str/bytes are treated as atomic, not as character sequences.
+        if not isinstance(value.x, typing.Iterable) or isinstance(
+            value.x, (str, bytes)
+        ):
+            yield value
+            continue
 
-    if not isinstance(value.x, typing.Iterable) or isinstance(
-        value.x, (str, bytes)
-    ):
-        yield value
-        return
-
-    for x in value.x:
-        yield value.but_with(x=x, i=Skip)
+        for x in value.x:
+            yield value.but_with(x=x, i=Skip)
 
 
 def select_mutator(ctx, instream, code):
@@ -315,9 +313,18 @@ def print_stream(ctx, stream):
         if val.x is Skip:
             continue
 
-        # Errors default to filtering out the entry, unless args.show_error.
-        if isinstance(val.x, Exception) and not ctx.args.show_error:
-            skipped_errors += 1
+        # Errors are diagnostics, not data: they never go to stdout. With
+        # --show-error each one is reported on stderr; otherwise they are
+        # counted and summarized.
+        if isinstance(val.x, Exception):
+            if ctx.args.show_error:
+                where = f"row {val.i}: " if val.i is not Skip else ""
+                print(
+                    f"py: {where}{type(val.x).__name__}: {val.x}",
+                    file=sys.stderr,
+                )
+            else:
+                skipped_errors += 1
             continue
         print(val.x)
 
@@ -341,7 +348,8 @@ def main():
         "-e",
         "--show-error",
         action="store_true",
-        help="Print raised exceptions. Default is to skip.",
+        help="Report each raised exception on stderr."
+        " Default is to skip, with a summary on stderr.",
     )
     parser.add_argument(
         "-b",
