@@ -36,12 +36,38 @@ class Context:
         self.args = args
         self.had_err = False
         self._symbols = {}
+        self._base = None
+        self._code_cache = {}
 
-    def user_symbols(self):
-        return self._symbols
+    def compiled(self, code):
+        # Compile each expression once instead of per row. eval() happily
+        # runs "exec"-mode code objects (returning None), so statements like
+        # assignments still work. Compile errors are cached and re-raised so
+        # each row reports the error without recompiling.
+        entry = self._code_cache.get(code)
+        if entry is None:
+            try:
+                entry = compile(code, "<py>", "eval")
+            except SyntaxError:
+                try:
+                    entry = compile(code, "<py>", "exec")
+                except SyntaxError as err:
+                    entry = err
+            self._code_cache[code] = entry
+        if isinstance(entry, SyntaxError):
+            raise entry
+        return entry
 
-    def module_symbols(self):
-        return {k: v for k, v in sys.modules.items()}
+    def base_symbols(self):
+        # The persistent eval namespace: user symbols plus any modules pulled
+        # in by auto-import. Built once and reused; eval_code copies it per
+        # evaluation instead of re-merging all of sys.modules per row.
+        if self._base is None:
+            self._base = {"__builtins__": __builtins__, **self._symbols}
+        return self._base
+
+    def add_module(self, name):
+        self.base_symbols()[name] = sys.modules[name]
 
     def _random_module_name(self):
         name = None
@@ -57,6 +83,7 @@ class Context:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self._symbols.update(**module.__symbols__)
+        self._base = None
 
     def load_user_symbols(self):
         env_path = os.environ.get(
@@ -81,22 +108,8 @@ class Value:
             symbols=kwargs.get("symbols", self.symbols),
         )
 
-    def general_symbols(self, ctx):
-        return {
-            **ctx.user_symbols(),
-            **ctx.module_symbols(),
-        }
-
-    def all_symbols(self, ctx):
-        return {
-            **self.general_symbols(ctx),
-            **self.symbols,
-            **({"x": self.x} if self.x is not Skip else {}),
-            **({"i": self.i} if self.i is not Skip else {}),
-        }
-
-
 def eval_code(ctx, value, code):
+    base = ctx.base_symbols()
     while True:
         try:
             # Try x.code()
@@ -106,27 +119,29 @@ def eval_code(ctx, value, code):
                     return value.but_with(x=attr() if callable(attr) else attr)
 
             # Execute code.
-            symbols = value.all_symbols(ctx)
-            try:
-                result = eval(code, symbols)
-            except SyntaxError:
-                result = exec(code, symbols)
+            symbols = dict(base)
+            symbols.update(value.symbols)
+            if value.x is not Skip:
+                symbols["x"] = value.x
+            if value.i is not Skip:
+                symbols["i"] = value.i
+            result = eval(ctx.compiled(code), symbols)
 
             # Try code(x)
             if callable(result):
                 result = result() if value.x is Skip else result(value.x)
 
-            base_symbols = value.general_symbols(ctx)
             new_symbols = {
-                name: sym
-                for name, sym in symbols.items()
-                if name not in base_symbols and not name.startswith("__")
+                name: symbols[name]
+                for name in symbols.keys() - base.keys()
+                if not name.startswith("__")
             }
             value.symbols = {**value.symbols, **new_symbols}
             return value.but_with(x=result)
         except NameError as err:
             module_match = re.match(r"name '(\w*)' is not defined", str(err))
             if module_match and new_import_successful(module_match.group(1)):
+                ctx.add_module(module_match.group(1))
                 continue
             ctx.had_err = 1
             return value.but_with(x=err)
@@ -184,8 +199,12 @@ def xargs(instream):
             symbols = dict(**val.symbols)
         else:
             for name, sym in val.symbols.items():
-                if name in symbols and symbols[name] != sym:
-                    del symbols[name]
+                if name in symbols:
+                    prev = symbols[name]
+                    # Identity check first: avoids O(size) equality compares
+                    # for large collection-valued symbols.
+                    if prev is not sym and prev != sym:
+                        del symbols[name]
 
     yield Value(x=x, symbols=symbols)
 
