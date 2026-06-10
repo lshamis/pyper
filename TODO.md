@@ -24,6 +24,14 @@
       but_with plumbing are gone; new symbols are read off the dict tail only
       when eval grew the namespace. 100k rows of `int(x)+1`: 0.31s (was 2.1s
       at the start of the effort); `'y=int(x)' 'y'`: 0.60s (was 4.0s).
+- [x] **Startup latency.** (Fixed 2026-06-10.) 75ms -> 34ms for builtin-only
+      expressions: argparse replaced with a hand-rolled parser (~30ms of
+      transitive imports), re/random/string/importlib.util imported on their
+      cold paths only, and symbols files loaded lazily on the first
+      unresolvable name (~23ms skipped when unused). Interpreter floor ~21ms.
+      Caveat: a symbols file that shadows a *builtin* name won't load for an
+      expression that only uses builtins (obscure; prefixed symbols like the
+      shipped `_pi` style are unaffected).
 - [ ] What's left per row: one C-level `dict(base)` copy (~1us) and
       generator/interpreter overhead. Investigated and rejected: dict-subclass
       globals with `__missing__` fallback (defeats LOAD_GLOBAL inline caches —
