@@ -1,15 +1,15 @@
 # TODO
 
 ## P1 — correctness / trust
-- [ ] **Auto-import retry double-evaluates expressions.** On `NameError`, the
-      importer imports the module and re-`eval`s the *whole* expression, so any
-      side effects before the failing name run twice
-      (e.g. `py 'do_thing() or json.dumps(x)'`). Fix: pre-scan names
-      (`ast.parse` + walk for `Name`/`Attribute` roots) and import before the
-      first eval. At minimum, document the caveat in the README.
-- [ ] **Exit-code/diagnostic story for errors.** Errors are silently dropped
-      without `-e`; only the exit code hints something went wrong. Consider a
-      one-line summary on stderr ("skipped N lines with errors; rerun with -e").
+- [x] **Auto-import retry double-evaluates expressions.** (Fixed 2026-06-10.)
+      Each expression's AST is now scanned once and referenced modules
+      (including dotted submodule chains) are imported before the first eval.
+      The NameError/AttributeError retry remains only as a fallback for
+      dynamically-constructed names — a side effect can still repeat in that
+      rare case (e.g. `py 'do_thing() or eval("somemod.f()")'`).
+- [x] **Exit-code/diagnostic story for errors.** (Fixed 2026-06-10.) Silently
+      dropped errors now produce a one-line stderr summary:
+      "py: skipped N row(s) with errors; rerun with -e to see them."
 
 ## P2 — performance
 - [x] **Per-line symbol-table rebuild was ~70% of runtime.** (Fixed
