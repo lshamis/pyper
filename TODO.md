@@ -1,76 +1,86 @@
 # TODO
 
-## P1 — correctness / trust
-- [x] **Auto-import retry double-evaluates expressions.** (Fixed 2026-06-10.)
-      Each expression's AST is now scanned once and referenced modules
-      (including dotted submodule chains) are imported before the first eval.
-      The NameError/AttributeError retry remains only as a fallback for
-      dynamically-constructed names — a side effect can still repeat in that
-      rare case (e.g. `py 'do_thing() or eval("somemod.f()")'`).
-- [x] **Exit-code/diagnostic story for errors.** (Fixed 2026-06-10.) Silently
-      dropped errors now produce a one-line stderr summary:
-      "py: skipped N row(s) with errors; rerun with -e to see them."
+Current state (2026-06-10): v0.1.0, installed via `uv tool install -e .`.
+33 tests (`uv run pytest`), ruff clean (`uv run ruff check`). Startup ~34ms
+for builtin-only expressions; ~0.3s per 100k rows of `int(x)+1`.
 
-## P2 — performance
-- [x] **Per-line symbol-table rebuild was ~70% of runtime.** (Fixed
-      2026-06-10.) `xargs` itself was already linear (400k lines in 0.26s);
-      the old "O(n^2) in xargs" report did not reproduce. The real costs were
-      `eval_code` re-merging all of `sys.modules` per row and re-compiling the
-      expression string per row. Now: persistent base namespace (user symbols
-      + lazily auto-imported modules) copied once per eval, key-diff for
-      assignment detection, cached compiled code objects, identity shortcut in
-      the xargs symbol merge. 100k rows of `int(x)+1`: 2.1s -> 0.78s.
-- [x] **Per-row symbol bookkeeping.** (Fixed 2026-06-10.) The key-set diff and
-      but_with plumbing are gone; new symbols are read off the dict tail only
-      when eval grew the namespace. 100k rows of `int(x)+1`: 0.31s (was 2.1s
-      at the start of the effort); `'y=int(x)' 'y'`: 0.60s (was 4.0s).
-- [x] **Startup latency.** (Fixed 2026-06-10.) 75ms -> 34ms for builtin-only
-      expressions: argparse replaced with a hand-rolled parser (~30ms of
-      transitive imports), re/random/string/importlib.util imported on their
-      cold paths only, and symbols files loaded lazily on the first
-      unresolvable name (~23ms skipped when unused). Interpreter floor ~21ms.
-      Caveat: a symbols file that shadows a *builtin* name won't load for an
-      expression that only uses builtins (obscure; prefixed symbols like the
-      shipped `_pi` style are unaffected).
-- [ ] What's left per row: one C-level `dict(base)` copy (~1us) and
-      generator/interpreter overhead. Investigated and rejected: dict-subclass
-      globals with `__missing__` fallback (defeats LOAD_GLOBAL inline caches —
-      eval itself gets ~6x slower, a net wash); shared mutable namespace with
-      journal/rollback (breaks lazy closures/genexps that outlive their row).
-      Revisit only if someone actually streams millions of rows.
+## Open
 
-## P3 — features
+### P3 — features
 - [ ] `--strict` flag: any row error aborts (or poisons aggregates) instead of
       dropping the row. The permissive default can make a partial xargs
       aggregate look complete to a downstream tool that ignores exit codes.
 - [ ] Error rows that pass through `unxargs` lose their row index (`i` is
       reset); consider carrying source-row provenance for better -e messages.
-- [x] `-n` / no-stdin flag for pure generation. (Added 2026-06-10.)
 - [ ] First-class JSON: `py json.loads 'x["field"]'` works today, but a
-      shorthand (`-j`?) for per-line JSON in/out would cover a very common
-      case.
-- [x] `--version` flag, single-sourced from `pyper.__version__`.
-      (Added 2026-06-10.)
+      shorthand for per-line JSON in/out would cover a very common case.
+      (Don't use `-j`; that letter is burned, see Rejected.)
 - [ ] Install `extra_symbols.py` as package data with a post-install hint, so
       it doesn't need to be hand-copied to `~/.config/py/`.
 
-## Rejected (with data — don't re-add without new evidence)
-- **`-j/--jobs` threaded row evaluation.** Built, benchmarked, reverted
-  2026-06-10 (see e1eeef0 / revert). Numbers on a GIL build: CPU-bound rows
-  ~11x slower with threads; reading+splitting 275MB of files was 2x slower
-  with -j16 even with a *cold* ext4 cache (NVMe readahead hides IO; decode and
-  split dominate). Only genuinely latency-bound rows won (HTTP @ 50ms: 7x).
-  Verdict: users would assume "more jobs = faster" without benchmarking and
-  pessimize the common case; the one winning workload is niche. Revisit only
-  for free-threaded Python, where CPU-bound rows would actually parallelize.
-  For IO-bound one-offs, `xargs -P` around `py` remains a workaround.
-
-## P4 — project hygiene
+### P4 — project hygiene
 - [ ] CI (GitHub Actions): pytest across supported Pythons (3.9–3.14) + ruff
-      check/format (config and dev-group are already in pyproject; the
-      workflow file is all that's missing).
+      check/format. Config and dev dependency group are already in pyproject;
+      only the workflow file is missing.
 - [ ] PyPI name "pyper" is taken by an unrelated concurrency library. Pick a
       distribution name (e.g. `pyper-pipe`) before publishing; the command can
       stay `py`.
-- [ ] Add `.gitignore` (`__pycache__/`, `.pytest_cache/` are currently
-      committed/untracked noise).
+
+### Perf — only if someone streams millions of rows
+- [ ] What's left per row: one C-level `dict(base)` copy (~1us) and
+      generator/interpreter overhead. Investigated and rejected: dict-subclass
+      globals with `__missing__` fallback (defeats LOAD_GLOBAL inline caches —
+      eval itself gets ~6x slower, a net wash); shared mutable namespace with
+      journal/rollback (breaks lazy closures/genexps that outlive their row).
+
+## Done (all 2026-06-10)
+
+### Correctness / behavior
+- [x] **Errors are diagnostics, not data.** Error rows never reach stdout.
+      Default: dropped + one-line stderr summary ("py: skipped N row(s) with
+      errors; rerun with -e to see them") + exit 1. With `-e`: each error on
+      stderr as `py: row N: ExcType: message`. Error rows flow *around*
+      xargs (not folded into the collection) and through unxargs.
+- [x] **unxargs flattens every row.** It used to consume only the first row
+      and silently discard the rest of the stream. str/bytes are atomic (no
+      char explosion).
+- [x] **Auto-import no longer double-evaluates.** Expression ASTs are scanned
+      once; referenced modules (incl. dotted submodule chains) import before
+      first eval. NameError/AttributeError retry remains only for
+      dynamically-constructed names, where a side effect can still repeat.
+- [x] BrokenPipeError (e.g. `| head`) exits quietly; Ctrl-C exits 130.
+- [x] User symbols shadow same-named modules; assignment re-binding across
+      expressions works (`a=x` ... `a=y`); `del` of a seeded name is safe.
+
+### Performance (baseline -> final, 100k rows, extra_symbols installed)
+- [x] `'int(x)+1'`: 2.1s -> 0.31s; `'y=int(x)' 'y'`: 4.0s -> 0.60s.
+      The "O(n^2) in xargs" report did not reproduce (xargs was linear all
+      along). Actual fixes: persistent base namespace instead of re-merging
+      sys.modules per row; compiled-code cache; capture new symbols off the
+      dict tail only when eval grew the namespace; identity shortcut in the
+      xargs symbol merge.
+- [x] Startup 75ms -> 34ms (builtin-only expressions): hand-rolled arg parser
+      (argparse + transitive re/enum cost ~30ms), cold-path imports inlined,
+      symbols files loaded lazily on first unresolvable name. Caveat: a
+      symbols file that shadows a *builtin* name won't load for an expression
+      using only builtins (obscure; `_`-prefixed symbols unaffected).
+
+### Features / hygiene
+- [x] `-n/--no-input`: ignore stdin, evaluate once (cron/subprocess case).
+- [x] `--version`, single-sourced from `pyper.__version__`.
+- [x] Packaged: pyproject + console-script entry point (`uv tool install`),
+      replacing the copy-the-file install. Module renamed py -> pyper.py.
+- [x] ruff lint+format config in pyproject; repo clean; dev dependency group
+      (pytest, ruff) so `uv run pytest` works bare; .gitignore.
+
+## Rejected (with data — don't re-add without new evidence)
+- **`-j/--jobs` threaded row evaluation.** Built, benchmarked, reverted
+  2026-06-10 (see e1eeef0 and its revert 7eb8d55). Numbers on a GIL build:
+  CPU-bound rows ~11x slower with threads; reading+splitting 275MB of files
+  was 2x slower with -j16 even with a *cold* ext4 cache (NVMe readahead hides
+  IO; decode and split dominate). Only genuinely latency-bound rows won
+  (HTTP @ 50ms: 7x). Verdict: users would assume "more jobs = faster" without
+  benchmarking and pessimize the common case; the one winning workload is
+  niche. Revisit only for free-threaded Python, where CPU-bound rows would
+  actually parallelize. For IO-bound one-offs, `xargs -P` around `py` remains
+  a workaround.
