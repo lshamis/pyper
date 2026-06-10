@@ -122,6 +122,24 @@ def test_xargs():
     )
 
 
+def test_xargs_passes_errors_through():
+    # Error rows must not be folded into the collected list.
+    py_(
+        ["int", "1 / x", "xargs", "len"],
+        in_=["0", "4", "8"],
+        want_out=b"2\n",
+        want_err=skipped(1),
+        want_returncode=1,
+    )
+
+    py_(
+        ["-e", "int", "1 / x", "xargs", "len"],
+        in_=["0", "4", "8"],
+        want_out=b"division by zero\n2\n",
+        want_returncode=1,
+    )
+
+
 def test_xargs_empty():
     py_(
         ["xargs"],

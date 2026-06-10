@@ -260,6 +260,12 @@ def xargs(instream):
     x = []
     symbols = Skip
     for val in instream:
+        if isinstance(val.x, Exception):
+            # Error rows pass through (like every other stage) instead of
+            # being folded into the collection.
+            yield val
+            continue
+
         if val.x is not Skip:
             x.append(val.x)
 
