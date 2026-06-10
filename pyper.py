@@ -226,7 +226,7 @@ def print_stream(ctx, stream):
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="py")
     parser.add_argument(
         "expr",
         action="store",

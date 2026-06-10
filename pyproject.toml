@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyper"
+version = "0.1.0"
+description = "Mix python expressions into bash pipes."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Leonid Shamis" }]
+
+[project.urls]
+Homepage = "https://github.com/lshamis/pyper"
+
+[project.scripts]
+py = "pyper:main"
+
+[tool.setuptools]
+py-modules = ["pyper"]

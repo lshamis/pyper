@@ -6,5 +6,5 @@ concurrency = multiprocessing
 exclude_lines =
     if __name__ == .__main__.:
 include =
-    py
+    pyper.py
 show_missing = True

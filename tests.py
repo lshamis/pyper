@@ -4,6 +4,7 @@
 import os
 import pty
 import subprocess
+import sys
 
 
 def py_(
@@ -22,7 +23,7 @@ def py_(
         in_ = "".join(line + "\n" for line in in_).encode()
 
     proc = subprocess.Popen(
-        ["./py"] + args,
+        [sys.executable, "./pyper.py"] + args,
         stdin=stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -158,7 +159,7 @@ def test_unxargs_string_is_atomic():
 def test_broken_pipe():
     # Downstream consumers closing early (e.g. `head`) must not traceback.
     proc = subprocess.run(
-        "seq 100000 | ./py x | head -2",
+        "seq 100000 | ./pyper.py x | head -2",
         shell=True,
         capture_output=True,
     )

@@ -32,7 +32,7 @@ Counter({'root': 254, 'lshamis': 187, 'dbus': 2, 'td-agent': 2, 'avahi': 2, 'USE
 
 And you can undo the process, converting a single collection to indepent inputs using `unxargs`:
 ```sh
-$ ls py | py open readlines unxargs rstrip '"sys" in x'
+$ ls pyper.py | py open readlines unxargs rstrip '"sys" in x'
 import sys
         public_modules = {k: v for k, v in sys.modules.items() if not k.startswith("_")}
         while not name or name in sys.modules:
@@ -75,7 +75,14 @@ False
 ```
 
 ### Installation:
-Copy the `py` file into any place in your PATH.
+```sh
+$ uv tool install git+https://github.com/lshamis/pyper
+```
+or from a local checkout (editable, so repo edits take effect immediately):
+```sh
+$ uv tool install --editable .
+```
+`pipx install` works the same way. Either installs a `py` command into `~/.local/bin`.
 
 Optionally copy the `extra_symbols.py` file into `~/.config/py/extra_symbols.py`. Doing so will first class symbols in common modules, prefixed by an `_`. For example:
 ```sh
