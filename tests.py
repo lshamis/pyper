@@ -23,7 +23,7 @@ def py_(
         in_ = "".join(line + "\n" for line in in_).encode()
 
     proc = subprocess.Popen(
-        [sys.executable, "./pyper.py"] + args,
+        [sys.executable, "./pyper.py", *args],
         stdin=stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -340,8 +340,7 @@ def test_attribute_error_on_value_does_not_crash():
     py_(
         ["-e", "x.fooo()"],
         in_=["hi"],
-        want_err=b"py: row 0: AttributeError:"
-        b" 'str' object has no attribute 'fooo'\n",
+        want_err=b"py: row 0: AttributeError: 'str' object has no attribute 'fooo'\n",
         want_returncode=1,
     )
 

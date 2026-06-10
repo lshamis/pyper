@@ -13,7 +13,6 @@ import sys
 import types
 
 
-
 class Skip:
     pass
 
@@ -25,13 +24,16 @@ def try_import(module_name):
         return None
 
 
-def new_import_successful(module_name, seen=set()):
-    if module_name in seen:
+# Names whose import has already been attempted (hit or miss), so failed
+# imports aren't retried for every row.
+_attempted_imports = set()
+
+
+def new_import_successful(module_name):
+    if module_name in _attempted_imports:
         return False
-    seen.add(module_name)
-    if not try_import(module_name):
-        return False
-    return True
+    _attempted_imports.add(module_name)
+    return try_import(module_name) is not None
 
 
 def dotted_name_candidates(code):
@@ -186,7 +188,7 @@ _KEEP = object()
 
 
 class Value:
-    __slots__ = ("x", "i", "symbols")
+    __slots__ = ("i", "symbols", "x")
 
     def __init__(self, x=Skip, i=Skip, symbols=Skip):
         self.x = x
@@ -199,6 +201,7 @@ class Value:
             i=self.i if i is _KEEP else i,
             symbols=self.symbols if symbols is _KEEP else symbols,
         )
+
 
 def eval_code(ctx, value, code):
     base = ctx.base_symbols()
@@ -400,7 +403,7 @@ options:
 
 
 class Args:
-    __slots__ = ("expr", "show_error", "show_bool")
+    __slots__ = ("expr", "show_bool", "show_error")
 
     def __init__(self):
         self.expr = []

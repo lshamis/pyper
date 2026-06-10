@@ -19,3 +19,10 @@ py = "pyper:main"
 
 [tool.setuptools]
 py-modules = ["pyper"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
