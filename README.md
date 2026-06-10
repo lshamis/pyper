@@ -91,7 +91,7 @@ $ ls | py _abspath
 /home/lshamis/github/lshamis/pyper/README.md
 $ echo 'Hello, World!' | py '_shorten(x, width=12)'
 Hello, [...]
-$ echo 'Hello, World!' | py '_wrap(x, width=12)' -t unxargs
+$ echo 'Hello, World!' | py '_wrap(x, width=12)' unxargs
 Hello,
 World!
 ```

@@ -146,6 +146,27 @@ def test_unxargs():
     )
 
 
+def test_unxargs_string_is_atomic():
+    # Strings are Iterable, but unxargs should not explode them into chars.
+    py_(
+        ["unxargs"],
+        in_=["hello"],
+        want_out=b"hello\n",
+    )
+
+
+def test_broken_pipe():
+    # Downstream consumers closing early (e.g. `head`) must not traceback.
+    proc = subprocess.run(
+        "seq 100000 | ./py x | head -2",
+        shell=True,
+        capture_output=True,
+    )
+    assert proc.stdout == b"1\n2\n"
+    assert b"Traceback" not in proc.stderr
+    assert proc.returncode == 0
+
+
 def test_unxargs_empty():
     py_(
         ["unxargs"],

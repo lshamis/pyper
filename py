@@ -196,7 +196,9 @@ def unxargs(instream):
     except StopIteration:
         return
 
-    if not isinstance(value.x, typing.Iterable):
+    if not isinstance(value.x, typing.Iterable) or isinstance(
+        value.x, (str, bytes)
+    ):
         yield value
         return
 
@@ -249,7 +251,17 @@ def main():
     stream = input_stream()
     for expr in ctx.args.expr:
         stream = select_mutator(ctx, stream, expr)
-    print_stream(ctx, stream)
+    try:
+        print_stream(ctx, stream)
+    except BrokenPipeError:
+        # Downstream consumer (e.g. `head`) closed the pipe. Exit quietly.
+        # Redirect stdout to devnull so the interpreter doesn't raise again
+        # while flushing during shutdown.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        return 0
+    except KeyboardInterrupt:
+        return 130
 
     return 1 if ctx.had_err else 0
 
