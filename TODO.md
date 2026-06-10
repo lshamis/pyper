@@ -12,15 +12,18 @@
       one-line summary on stderr ("skipped N lines with errors; rerun with -e").
 
 ## P2 — performance
-- [ ] **Per-line symbol-table rebuild is ~70% of runtime.** Measured
-      2026-06-10: `xargs` itself is linear (400k lines in 0.26s), so the old
-      "O(n^2) in xargs" report does not reproduce. The real cost is
-      `eval_code` calling `module_symbols()` (full copy of `sys.modules`)
-      twice per line plus three dict merges (cProfile, 100k lines of
-      `int(x)`: 1.12s of 1.56s in symbol plumbing). Fix: build the base
-      symbols dict once, invalidate when `new_import_successful` fires (and/or
-      when `len(sys.modules)` changes); detect new user symbols by key
-      snapshot instead of full dict diff.
+- [x] **Per-line symbol-table rebuild was ~70% of runtime.** (Fixed
+      2026-06-10.) `xargs` itself was already linear (400k lines in 0.26s);
+      the old "O(n^2) in xargs" report did not reproduce. The real costs were
+      `eval_code` re-merging all of `sys.modules` per row and re-compiling the
+      expression string per row. Now: persistent base namespace (user symbols
+      + lazily auto-imported modules) copied once per eval, key-diff for
+      assignment detection, cached compiled code objects, identity shortcut in
+      the xargs symbol merge. 100k rows of `int(x)+1`: 2.1s -> 0.78s.
+- [ ] Remaining per-row cost is the `dict(base)` copy (O(|base|), ~250
+      entries with extra_symbols loaded). Could be eliminated by evaluating in
+      a shared namespace and rolling back new keys, at the cost of trickier
+      isolation semantics. Only worth it if multi-100k-row pipes feel slow.
 
 ## P3 — features
 - [ ] `-n` / no-stdin flag for pure generation (currently relies on
