@@ -106,19 +106,13 @@ World!
 ### Help:
 ```sh
 $ py --help
-usage: py [-h] [-e] [-b] [-j JOBS] expr [expr ...]
+usage: py [-h] [-e] [-b] expr [expr ...]
 
 positional arguments:
   expr              Expression to apply to all inputs.
 
 options:
   -h, --help        show this help message and exit
-  -e, --show-error  Report each raised exception on stderr. Default is to
-                    skip, with a summary on stderr.
-  -b, --show-bool   Print bool values. Default is to use bool values as a
-                    filter.
-  -j, --jobs JOBS   Evaluate rows with JOBS worker threads. Output order is
-                    preserved. Helps IO-bound expressions (network calls,
-                    subprocesses); pure-Python computation is faster without
-                    it.
+  -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
+  -b, --show-bool   Print bool values. Default is to use bool values as a filter.
 ```
