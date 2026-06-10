@@ -46,7 +46,7 @@ def skipped(n):
 def test_noarg():
     py_(
         [],
-        want_err=b"""usage: py [-h] [-e] [-b] expr [expr ...]
+        want_err=b"""usage: py [-h] [-e] [-b] [-j JOBS] expr [expr ...]
 py: error: the following arguments are required: expr
 """,
         want_returncode=2,
@@ -59,7 +59,7 @@ def test_help():
     py_(
         ["-h"],
         want_out_contains=[
-            b"usage: py [-h] [-e] [-b] expr [expr ...]",
+            b"usage: py [-h] [-e] [-b] [-j JOBS] expr [expr ...]",
             b"Expression to apply to all inputs.",
             b"--show-error",
             b"--show-bool",
@@ -373,6 +373,51 @@ def test_exception():
         want_out=b"4.0\n8.0\n",
         want_err=b"py: row 0: ZeroDivisionError: division by zero\n",
         want_returncode=1,
+    )
+
+
+def test_jobs_preserves_order_and_semantics():
+    rows = [str(n) for n in range(200)]
+    expected = "".join(
+        f"{n * 3}\n" for n in range(200) if (n * 3) % 2 == 1
+    ).encode()
+    for jobs_flags in ([], ["-j", "8"], ["-j8"], ["--jobs=8"]):
+        py_(
+            jobs_flags + ["int", "x * 3", "x % 2 == 1", "x"],
+            in_=rows,
+            want_out=expected,
+        )
+
+
+def test_jobs_with_errors_and_xargs():
+    py_(
+        ["-j", "4", "int", "1 / x", "xargs", "len"],
+        in_=["0", "4", "8"],
+        want_out=b"2\n",
+        want_err=skipped(1),
+        want_returncode=1,
+    )
+
+
+def test_jobs_io_bound_speedup():
+    import time
+
+    start = time.monotonic()
+    py_(
+        ["-j", "32", "time.sleep(0.05) or x"],
+        in_=[str(n) for n in range(32)],
+        want_out="".join(f"{n}\n" for n in range(32)).encode(),
+    )
+    # Serial would take >= 1.6s; allow generous slack for slow machines.
+    assert time.monotonic() - start < 1.2
+
+
+def test_jobs_bad_value():
+    py_(
+        ["-j", "0", "x"],
+        want_err=b"usage: py [-h] [-e] [-b] [-j JOBS] expr [expr ...]\n"
+        b"py: error: argument -j: invalid jobs value: '0'\n",
+        want_returncode=2,
     )
 
 

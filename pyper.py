@@ -285,23 +285,62 @@ def input_stream():
         yield Value(x=x.rstrip("\n"), i=i)
 
 
-def code_mutator(ctx, instream, code):
-    for val in instream:
-        if isinstance(val.x, Exception):
-            yield val
-            continue
+def apply_codes(ctx, value, codes):
+    """Run one row through a chain of expressions.
 
-        new_val = eval_code(ctx, val, code)
+    Returns the resulting Value, or None if the row was filtered out.
+    """
+    for code in codes:
+        if isinstance(value.x, Exception):
+            break
+
+        new_val = eval_code(ctx, value, code)
 
         if new_val.x is None:
-            yield val
+            continue
         elif type(new_val.x) is bool:
             if ctx.args.show_bool:
-                yield new_val
-            elif new_val.x:
-                yield val
+                value = new_val
+            elif not new_val.x:
+                return None
         else:
-            yield new_val
+            value = new_val
+    return value
+
+
+def codes_mutator(ctx, instream, codes):
+    if ctx.args.jobs > 1:
+        yield from parallel_codes_mutator(ctx, instream, codes)
+        return
+
+    for val in instream:
+        out = apply_codes(ctx, val, codes)
+        if out is not None:
+            yield out
+
+
+def parallel_codes_mutator(ctx, instream, codes):
+    # Opt-in (-j): worth it for IO-bound expressions (network calls,
+    # subprocess runs, file stats). CPU-bound pure-Python expressions are
+    # *slower* with threads under the GIL. Submission uses a bounded window
+    # so memory stays flat, and results are yielded in input order.
+    import collections
+    import concurrent.futures
+
+    pending = collections.deque()
+    window = ctx.args.jobs * 4
+
+    with concurrent.futures.ThreadPoolExecutor(ctx.args.jobs) as executor:
+        for val in instream:
+            pending.append(executor.submit(apply_codes, ctx, val, codes))
+            if len(pending) >= window:
+                out = pending.popleft().result()
+                if out is not None:
+                    yield out
+        while pending:
+            out = pending.popleft().result()
+            if out is not None:
+                yield out
 
 
 def xargs(instream):
@@ -345,14 +384,28 @@ def unxargs(instream):
             yield value.but_with(x=x, i=Skip)
 
 
-def select_mutator(ctx, instream, code):
-    if code == "xargs":
-        return xargs(instream)
-    elif code == "unxargs":
-        return unxargs(instream)
-    else:
-        ctx.preimport(code)
-        return code_mutator(ctx, instream, code)
+def build_pipeline(ctx, stream):
+    # Consecutive expressions form a segment evaluated row-at-a-time (and,
+    # with -j, in parallel); xargs/unxargs are barriers between segments.
+    codes = []
+
+    def flush(stream):
+        if codes:
+            segment = list(codes)
+            codes.clear()
+            for code in segment:
+                ctx.preimport(code)
+            stream = codes_mutator(ctx, stream, segment)
+        return stream
+
+    for expr in ctx.args.expr:
+        if expr == "xargs":
+            stream = xargs(flush(stream))
+        elif expr == "unxargs":
+            stream = unxargs(flush(stream))
+        else:
+            codes.append(expr)
+    return flush(stream)
 
 
 def print_stream(ctx, stream):
@@ -384,7 +437,7 @@ def print_stream(ctx, stream):
         )
 
 
-USAGE = "usage: py [-h] [-e] [-b] expr [expr ...]"
+USAGE = "usage: py [-h] [-e] [-b] [-j JOBS] expr [expr ...]"
 HELP = f"""{USAGE}
 
 positional arguments:
@@ -396,16 +449,21 @@ options:
                     skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a
                     filter.
+  -j, --jobs JOBS   Evaluate rows with JOBS worker threads. Output order is
+                    preserved. Helps IO-bound expressions (network calls,
+                    subprocesses); pure-Python computation is faster without
+                    it.
 """
 
 
 class Args:
-    __slots__ = ("expr", "show_error", "show_bool")
+    __slots__ = ("expr", "show_error", "show_bool", "jobs")
 
     def __init__(self):
         self.expr = []
         self.show_error = False
         self.show_bool = False
+        self.jobs = 1
 
 
 def usage_error(message):
@@ -418,8 +476,20 @@ def parse_args(argv):
     # Hand-rolled (instead of argparse) to keep startup snappy: argparse and
     # its transitive imports (re, enum, ...) cost ~30ms per invocation.
     args = Args()
+
+    def parse_jobs(text, flag):
+        try:
+            jobs = int(text)
+        except ValueError:
+            jobs = 0
+        if jobs < 1:
+            usage_error(f"argument {flag}: invalid jobs value: {text!r}")
+        return jobs
+
     flags_done = False
-    for tok in argv:
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
         if flags_done or not tok.startswith("-") or tok == "-":
             args.expr.append(tok)
         elif tok == "--":
@@ -431,10 +501,21 @@ def parse_args(argv):
             args.show_error = True
         elif tok == "--show-bool":
             args.show_bool = True
+        elif tok == "--jobs" or tok.startswith("--jobs="):
+            if "=" in tok:
+                value = tok.split("=", 1)[1]
+            else:
+                i += 1
+                if i >= len(argv):
+                    usage_error("argument --jobs: expected one argument")
+                value = argv[i]
+            args.jobs = parse_jobs(value, "--jobs")
         elif tok.startswith("--"):
             usage_error(f"unrecognized arguments: {tok}")
         else:
-            for char in tok[1:]:
+            pos = 1
+            while pos < len(tok):
+                char = tok[pos]
                 if char == "h":
                     print(HELP, end="")
                     sys.exit(0)
@@ -442,8 +523,19 @@ def parse_args(argv):
                     args.show_error = True
                 elif char == "b":
                     args.show_bool = True
+                elif char == "j":
+                    value = tok[pos + 1 :]
+                    if not value:
+                        i += 1
+                        if i >= len(argv):
+                            usage_error("argument -j: expected one argument")
+                        value = argv[i]
+                    args.jobs = parse_jobs(value, "-j")
+                    break
                 else:
                     usage_error(f"unrecognized arguments: {tok}")
+                pos += 1
+        i += 1
     if not args.expr:
         usage_error("the following arguments are required: expr")
     return args
@@ -452,9 +544,7 @@ def parse_args(argv):
 def main():
     ctx = Context(parse_args(sys.argv[1:]))
 
-    stream = input_stream()
-    for expr in ctx.args.expr:
-        stream = select_mutator(ctx, stream, expr)
+    stream = build_pipeline(ctx, input_stream())
     try:
         print_stream(ctx, stream)
     except BrokenPipeError:
