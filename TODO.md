@@ -45,13 +45,12 @@
       aggregate look complete to a downstream tool that ignores exit codes.
 - [ ] Error rows that pass through `unxargs` lose their row index (`i` is
       reset); consider carrying source-row provenance for better -e messages.
-- [ ] `-n` / no-stdin flag for pure generation (currently relies on
-      `isatty()`, which misbehaves under subprocess/cron where stdin is a pipe
-      but empty-by-intent).
+- [x] `-n` / no-stdin flag for pure generation. (Added 2026-06-10.)
 - [ ] First-class JSON: `py json.loads 'x["field"]'` works today, but a
       shorthand (`-j`?) for per-line JSON in/out would cover a very common
       case.
-- [ ] `--version` flag (read from package metadata via `importlib.metadata`).
+- [x] `--version` flag, single-sourced from `pyper.__version__`.
+      (Added 2026-06-10.)
 - [ ] Install `extra_symbols.py` as package data with a post-install hint, so
       it doesn't need to be hand-copied to `~/.config/py/`.
 
@@ -67,8 +66,9 @@
   For IO-bound one-offs, `xargs -P` around `py` remains a workaround.
 
 ## P4 — project hygiene
-- [ ] CI (GitHub Actions): pytest across supported Pythons (3.9–3.14) + a lint
-      step (ruff).
+- [ ] CI (GitHub Actions): pytest across supported Pythons (3.9–3.14) + ruff
+      check/format (config and dev-group are already in pyproject; the
+      workflow file is all that's missing).
 - [ ] PyPI name "pyper" is taken by an unrelated concurrency library. Pick a
       distribution name (e.g. `pyper-pipe`) before publishing; the command can
       stay `py`.
