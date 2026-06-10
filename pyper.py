@@ -12,6 +12,8 @@ import os
 import sys
 import types
 
+__version__ = "0.1.0"
+
 
 class Skip:
     pass
@@ -387,7 +389,7 @@ def print_stream(ctx, stream):
         )
 
 
-USAGE = "usage: py [-h] [-e] [-b] expr [expr ...]"
+USAGE = "usage: py [-h] [--version] [-e] [-b] expr [expr ...]"
 HELP = f"""{USAGE}
 
 positional arguments:
@@ -395,6 +397,7 @@ positional arguments:
 
 options:
   -h, --help        show this help message and exit
+  --version         show program's version number and exit
   -e, --show-error  Report each raised exception on stderr. Default is to
                     skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a
@@ -429,6 +432,9 @@ def parse_args(argv):
             flags_done = True
         elif tok == "--help":
             print(HELP, end="")
+            sys.exit(0)
+        elif tok == "--version":
+            print(f"py {__version__}")
             sys.exit(0)
         elif tok == "--show-error":
             args.show_error = True

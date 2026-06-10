@@ -106,13 +106,14 @@ World!
 ### Help:
 ```sh
 $ py --help
-usage: py [-h] [-e] [-b] expr [expr ...]
+usage: py [-h] [--version] [-e] [-b] expr [expr ...]
 
 positional arguments:
   expr              Expression to apply to all inputs.
 
 options:
   -h, --help        show this help message and exit
+  --version         show program's version number and exit
   -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a filter.
 ```

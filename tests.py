@@ -46,7 +46,7 @@ def skipped(n):
 def test_noarg():
     py_(
         [],
-        want_err=b"""usage: py [-h] [-e] [-b] expr [expr ...]
+        want_err=b"""usage: py [-h] [--version] [-e] [-b] expr [expr ...]
 py: error: the following arguments are required: expr
 """,
         want_returncode=2,
@@ -59,11 +59,20 @@ def test_help():
     py_(
         ["-h"],
         want_out_contains=[
-            b"usage: py [-h] [-e] [-b] expr [expr ...]",
+            b"usage: py [-h] [--version] [-e] [-b] expr [expr ...]",
             b"Expression to apply to all inputs.",
             b"--show-error",
             b"--show-bool",
         ],
+    )
+
+
+def test_version():
+    import pyper
+
+    py_(
+        ["--version"],
+        want_out=f"py {pyper.__version__}\n".encode(),
     )
 
 
