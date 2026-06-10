@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 
-import argparse
+# Startup latency matters for a per-pipe CLI tool; modules that are only
+# needed on cold paths (error handling, symbols-file loading) are imported
+# inline there instead. Notably argparse is avoided entirely (~30ms).
 import ast
 import builtins
 import collections.abc
 import importlib
-import importlib.util
 import itertools
 import os
-import random
-import re
-import string
 import sys
 import types
 
@@ -74,6 +72,7 @@ class Context:
         self._symbols = {}
         self._base = None
         self._code_cache = {}
+        self._user_symbols_loaded = False
 
     def compiled(self, code):
         # Compile each expression once instead of per row. eval() happily
@@ -119,6 +118,8 @@ class Context:
             parts = name.split(".")
             if parts[0] in ("x", "i") or hasattr(builtins, parts[0]):
                 continue
+            if parts[0] not in base:
+                self.ensure_user_symbols()
             if len(parts) == 1:
                 if name not in base and new_import_successful(name):
                     self.add_module(name)
@@ -140,6 +141,9 @@ class Context:
                 obj = nxt
 
     def _random_module_name(self):
+        import random
+        import string
+
         name = None
         while not name or name in sys.modules:
             name = "_" + "".join(
@@ -148,14 +152,27 @@ class Context:
         return name
 
     def load_symbols(self, path):
+        import importlib.util
+
         module_name = self._random_module_name()
         spec = importlib.util.spec_from_file_location(module_name, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self._symbols.update(**module.__symbols__)
-        self._base = None
+        if self._base is not None:
+            # Update in place: eval_code may hold a reference to the dict.
+            self._base.update(module.__symbols__)
 
-    def load_user_symbols(self):
+    def ensure_user_symbols(self):
+        """Load symbols files lazily, on the first unresolvable name.
+
+        Loading (and importing the modules referenced by) the symbols file
+        costs ~20ms, which would otherwise be paid on every invocation even
+        for expressions made purely of builtins.
+        """
+        if self._user_symbols_loaded:
+            return
+        self._user_symbols_loaded = True
         env_path = os.environ.get(
             "PY_SYMBOL_FILEPATHS", "~/.config/py/extra_symbols.py"
         )
@@ -229,13 +246,22 @@ def eval_code(ctx, value, code):
                 value.symbols = {**value.symbols, **new_symbols}
             return value.but_with(x=result)
         except NameError as err:
+            import re
+
             module_match = re.match(r"name '(\w*)' is not defined", str(err))
-            if module_match and new_import_successful(module_match.group(1)):
-                ctx.add_module(module_match.group(1))
-                continue
+            if module_match:
+                name = module_match.group(1)
+                ctx.ensure_user_symbols()
+                if name in base:
+                    continue
+                if new_import_successful(name):
+                    ctx.add_module(name)
+                    continue
             ctx.had_err = 1
             return value.but_with(x=err)
         except AttributeError as err:
+            import re
+
             submodule_match = re.match(
                 r"module '([\w.]*)' has no attribute '(\w*)'", str(err)
             )
@@ -358,29 +384,73 @@ def print_stream(ctx, stream):
         )
 
 
+USAGE = "usage: py [-h] [-e] [-b] expr [expr ...]"
+HELP = f"""{USAGE}
+
+positional arguments:
+  expr              Expression to apply to all inputs.
+
+options:
+  -h, --help        show this help message and exit
+  -e, --show-error  Report each raised exception on stderr. Default is to
+                    skip, with a summary on stderr.
+  -b, --show-bool   Print bool values. Default is to use bool values as a
+                    filter.
+"""
+
+
+class Args:
+    __slots__ = ("expr", "show_error", "show_bool")
+
+    def __init__(self):
+        self.expr = []
+        self.show_error = False
+        self.show_bool = False
+
+
+def usage_error(message):
+    print(USAGE, file=sys.stderr)
+    print(f"py: error: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def parse_args(argv):
+    # Hand-rolled (instead of argparse) to keep startup snappy: argparse and
+    # its transitive imports (re, enum, ...) cost ~30ms per invocation.
+    args = Args()
+    flags_done = False
+    for tok in argv:
+        if flags_done or not tok.startswith("-") or tok == "-":
+            args.expr.append(tok)
+        elif tok == "--":
+            flags_done = True
+        elif tok == "--help":
+            print(HELP, end="")
+            sys.exit(0)
+        elif tok == "--show-error":
+            args.show_error = True
+        elif tok == "--show-bool":
+            args.show_bool = True
+        elif tok.startswith("--"):
+            usage_error(f"unrecognized arguments: {tok}")
+        else:
+            for char in tok[1:]:
+                if char == "h":
+                    print(HELP, end="")
+                    sys.exit(0)
+                elif char == "e":
+                    args.show_error = True
+                elif char == "b":
+                    args.show_bool = True
+                else:
+                    usage_error(f"unrecognized arguments: {tok}")
+    if not args.expr:
+        usage_error("the following arguments are required: expr")
+    return args
+
+
 def main():
-    parser = argparse.ArgumentParser(prog="py")
-    parser.add_argument(
-        "expr",
-        action="store",
-        nargs="+",
-        help="Expression to apply to all inputs.",
-    )
-    parser.add_argument(
-        "-e",
-        "--show-error",
-        action="store_true",
-        help="Report each raised exception on stderr."
-        " Default is to skip, with a summary on stderr.",
-    )
-    parser.add_argument(
-        "-b",
-        "--show-bool",
-        action="store_true",
-        help="Print bool values. Default is to use bool values as a filter.",
-    )
-    ctx = Context(parser.parse_intermixed_args())
-    ctx.load_user_symbols()
+    ctx = Context(parse_args(sys.argv[1:]))
 
     stream = input_stream()
     for expr in ctx.args.expr:
