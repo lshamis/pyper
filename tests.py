@@ -286,6 +286,16 @@ def test_assignment_overwrite():
     )
 
 
+def test_assignment_delete_does_not_crash():
+    # 'del a' removes a seeded symbol mid-expression; the row must not
+    # turn into an error, and the old binding survives.
+    py_(
+        ["a=7", "del a", "a"],
+        in_=["row"],
+        want_out=b"7\n",
+    )
+
+
 def test_undefined_symbol():
     py_(
         ["foo"],

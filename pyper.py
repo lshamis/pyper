@@ -3,15 +3,17 @@
 import argparse
 import ast
 import builtins
+import collections.abc
 import importlib
 import importlib.util
+import itertools
 import os
 import random
 import re
 import string
 import sys
 import types
-import typing
+
 
 
 class Skip:
@@ -163,17 +165,22 @@ class Context:
                 self.load_symbols(path)
 
 
+_KEEP = object()
+
+
 class Value:
+    __slots__ = ("x", "i", "symbols")
+
     def __init__(self, x=Skip, i=Skip, symbols=Skip):
         self.x = x
         self.i = i
         self.symbols = symbols if symbols is not Skip else {}
 
-    def but_with(self, **kwargs):
+    def but_with(self, x=_KEEP, i=_KEEP, symbols=_KEEP):
         return Value(
-            x=kwargs.get("x", self.x),
-            i=kwargs.get("i", self.i),
-            symbols=kwargs.get("symbols", self.symbols),
+            x=self.x if x is _KEEP else x,
+            i=self.i if i is _KEEP else i,
+            symbols=self.symbols if symbols is _KEEP else symbols,
         )
 
 def eval_code(ctx, value, code):
@@ -188,23 +195,38 @@ def eval_code(ctx, value, code):
 
             # Execute code.
             symbols = dict(base)
-            symbols.update(value.symbols)
+            if value.symbols:
+                symbols.update(value.symbols)
             if value.x is not Skip:
                 symbols["x"] = value.x
             if value.i is not Skip:
                 symbols["i"] = value.i
+            seeded_len = len(symbols)
+
             result = eval(ctx.compiled(code), symbols)
 
             # Try code(x)
             if callable(result):
                 result = result() if value.x is Skip else result(value.x)
 
-            new_symbols = {
-                name: symbols[name]
-                for name in symbols.keys() - base.keys()
-                if not name.startswith("__")
-            }
-            value.symbols = {**value.symbols, **new_symbols}
+            # Most expressions don't assign names; only pay for capture when
+            # eval grew the namespace. New names can only be *appended*
+            # (overwrites don't change dict order), so they are exactly the
+            # tail past seeded_len.
+            new_symbols = {}
+            if len(symbols) > seeded_len:
+                for name in itertools.islice(symbols, seeded_len, None):
+                    if not name.startswith("__") and name not in ("x", "i"):
+                        new_symbols[name] = symbols[name]
+            if value.symbols:
+                # A name seeded from value.symbols may have been re-assigned
+                # in place (e.g. a second 'a = ...'), which appends nothing.
+                for name, old in value.symbols.items():
+                    cur = symbols.get(name, Skip)
+                    if cur is not Skip and cur is not old:
+                        new_symbols[name] = cur
+            if new_symbols:
+                value.symbols = {**value.symbols, **new_symbols}
             return value.but_with(x=result)
         except NameError as err:
             module_match = re.match(r"name '(\w*)' is not defined", str(err))
@@ -287,7 +309,7 @@ def unxargs(instream):
     for value in instream:
         # Non-iterables (including error rows) pass through unchanged.
         # str/bytes are treated as atomic, not as character sequences.
-        if not isinstance(value.x, typing.Iterable) or isinstance(
+        if not isinstance(value.x, collections.abc.Iterable) or isinstance(
             value.x, (str, bytes)
         ):
             yield value
