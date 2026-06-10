@@ -125,19 +125,18 @@ def eval_code(ctx, value, code):
             value.symbols = {**value.symbols, **new_symbols}
             return value.but_with(x=result)
         except NameError as err:
-            module_match = re.match("name '(\w*)' is not defined", str(err))
-            assert module_match
-            if new_import_successful(module_match.group(1)):
+            module_match = re.match(r"name '(\w*)' is not defined", str(err))
+            if module_match and new_import_successful(module_match.group(1)):
                 continue
             ctx.had_err = 1
             return value.but_with(x=err)
         except AttributeError as err:
             submodule_match = re.match(
-                "module '([\w.]*)' has no attribute '(\w*)'", str(err)
+                r"module '([\w.]*)' has no attribute '(\w*)'", str(err)
             )
-            assert submodule_match
-            module_name, submodule_name = submodule_match.groups()
-            if new_import_successful(f"{module_name}.{submodule_name}"):
+            if submodule_match and new_import_successful(
+                "{}.{}".format(*submodule_match.groups())
+            ):
                 continue
             ctx.had_err = 1
             return value.but_with(x=err)

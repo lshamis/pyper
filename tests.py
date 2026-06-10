@@ -13,6 +13,7 @@ def py_(
     want_out=b"",
     want_err=b"",
     want_returncode=0,
+    want_out_contains=None,
 ):
     stdin = subprocess.PIPE
     if in_ is None:
@@ -28,7 +29,11 @@ def py_(
         env=env,
     )
     out, err = proc.communicate(in_)
-    assert out == want_out
+    if want_out_contains is not None:
+        for fragment in want_out_contains:
+            assert fragment in out
+    else:
+        assert out == want_out
     assert err == want_err
     assert proc.returncode == want_returncode
 
@@ -44,19 +49,16 @@ py: error: the following arguments are required: expr
 
 
 def test_help():
+    # argparse phrasing drifts across Python versions ("optional arguments"
+    # became "options"); check the stable fragments only.
     py_(
         ["-h"],
-        want_out=b"""usage: py [-h] [-e] [-b] expr [expr ...]
-
-positional arguments:
-  expr              Expression to apply to all inputs.
-
-optional arguments:
-  -h, --help        show this help message and exit
-  -e, --show-error  Print raised exceptions. Default is to skip.
-  -b, --show-bool   Print bool values. Default is to use bool values as a
-                    filter.
-""",
+        want_out_contains=[
+            b"usage: py [-h] [-e] [-b] expr [expr ...]",
+            b"Expression to apply to all inputs.",
+            b"--show-error",
+            b"--show-bool",
+        ],
     )
 
 
@@ -240,6 +242,24 @@ def test_undefined_symbol():
 def test_undefined_attribute():
     py_(
         ["email.message.spacerace"],
+        want_returncode=1,
+    )
+
+
+def test_attribute_error_on_value_does_not_crash():
+    # Regression: a plain AttributeError (not the module-import pattern)
+    # used to fail an assert inside the except handler and crash with a
+    # traceback. It must behave like any other row error: filtered by
+    # default, printed with -e.
+    py_(
+        ["x.fooo()"],
+        in_=["hi"],
+        want_returncode=1,
+    )
+    py_(
+        ["-e", "x.fooo()"],
+        in_=["hi"],
+        want_out=b"'str' object has no attribute 'fooo'\n",
         want_returncode=1,
     )
 
