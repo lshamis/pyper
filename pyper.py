@@ -69,6 +69,34 @@ def dotted_name_candidates(code):
     return candidates
 
 
+def default_symbols():
+    """Built-in convenience symbols from common stdlib modules.
+
+    Each public attribute is exposed with a `_` prefix: `_pi`, `_abspath`,
+    `_Counter`, `_shorten`, ... First module in the list wins on collisions.
+    """
+    import collections
+    import glob
+    import math
+    import os.path
+    import pprint
+    import random
+    import string
+    import textwrap
+
+    modules = [collections, glob, math, os.path, pprint, random, string, textwrap]
+    symbols = {}
+    for mod in modules:
+        for name in dir(mod):
+            if name.startswith("_"):
+                continue
+            attr = getattr(mod, name)
+            if isinstance(attr, types.ModuleType):
+                continue
+            symbols.setdefault(f"_{name}", attr)
+    return symbols
+
+
 class Context:
     def __init__(self, args):
         self.args = args
@@ -76,7 +104,7 @@ class Context:
         self._symbols = {}
         self._base = None
         self._code_cache = {}
-        self._user_symbols_loaded = False
+        self._extra_symbols_loaded = False
 
     def compiled(self, code):
         # Compile each expression once instead of per row. eval() happily
@@ -123,7 +151,7 @@ class Context:
             if parts[0] in ("x", "i") or hasattr(builtins, parts[0]):
                 continue
             if parts[0] not in base:
-                self.ensure_user_symbols()
+                self.ensure_extra_symbols()
             if len(parts) == 1:
                 if name not in base and new_import_successful(name):
                     self.add_module(name)
@@ -144,46 +172,42 @@ class Context:
                     break
                 obj = nxt
 
-    def _random_module_name(self):
-        import random
-        import string
+    def _add_symbols(self, symbols):
+        self._symbols.update(symbols)
+        if self._base is not None:
+            # Update in place: eval_code may hold a reference to the dict.
+            self._base.update(symbols)
 
-        name = None
-        while not name or name in sys.modules:
-            name = "_" + "".join(
-                random.choice(string.ascii_lowercase) for i in range(10)
-            )
-        return name
-
-    def load_symbols(self, path):
+    def load_symbols(self, path, index):
         import importlib.util
 
-        module_name = self._random_module_name()
+        module_name = f"_py_symbols_{index}"
+        while module_name in sys.modules:
+            module_name += "_"
         spec = importlib.util.spec_from_file_location(module_name, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self._symbols.update(**module.__symbols__)
-        if self._base is not None:
-            # Update in place: eval_code may hold a reference to the dict.
-            self._base.update(module.__symbols__)
+        self._add_symbols(module.__symbols__)
 
-    def ensure_user_symbols(self):
-        """Load symbols files lazily, on the first unresolvable name.
+    def ensure_extra_symbols(self):
+        """Load extra symbols lazily, on the first unresolvable name.
 
-        Loading (and importing the modules referenced by) the symbols file
-        costs ~20ms, which would otherwise be paid on every invocation even
-        for expressions made purely of builtins.
+        Built-in defaults first, then user symbols files (which override
+        them). Building the defaults imports several stdlib modules (~20ms),
+        which would otherwise be paid on every invocation, even for
+        expressions made purely of builtins.
         """
-        if self._user_symbols_loaded:
+        if self._extra_symbols_loaded:
             return
-        self._user_symbols_loaded = True
+        self._extra_symbols_loaded = True
+        self._add_symbols(default_symbols())
         env_path = os.environ.get(
             "PY_SYMBOL_FILEPATHS", "~/.config/py/extra_symbols.py"
         )
-        for path in env_path.split(":"):
+        for index, path in enumerate(env_path.split(":")):
             path = os.path.expanduser(path)
             if os.path.exists(path):
-                self.load_symbols(path)
+                self.load_symbols(path, index)
 
 
 _KEEP = object()
@@ -256,7 +280,7 @@ def eval_code(ctx, value, code):
             module_match = re.match(r"name '(\w*)' is not defined", str(err))
             if module_match:
                 name = module_match.group(1)
-                ctx.ensure_user_symbols()
+                ctx.ensure_extra_symbols()
                 if name in base:
                     continue
                 if new_import_successful(name):
@@ -367,16 +391,19 @@ def print_stream(ctx, stream):
             continue
 
         # Errors are diagnostics, not data: they never go to stdout. With
-        # --show-error each one is reported on stderr; otherwise they are
-        # counted and summarized.
+        # --strict the first one aborts the run; with --show-error each one
+        # is reported on stderr; otherwise they are counted and summarized.
         if isinstance(val.x, Exception):
-            if ctx.args.show_error:
+            if ctx.args.show_error or ctx.args.strict:
                 where = f"row {val.i}: " if val.i is not Skip else ""
                 print(
                     f"py: {where}{type(val.x).__name__}: {val.x}",
                     file=sys.stderr,
                 )
-            else:
+            if ctx.args.strict:
+                print("py: --strict: aborting on first error", file=sys.stderr)
+                return
+            if not ctx.args.show_error:
                 skipped_errors += 1
             continue
         print(val.x)
@@ -389,7 +416,7 @@ def print_stream(ctx, stream):
         )
 
 
-USAGE = "usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]"
+USAGE = "usage: py [-h] [--version] [-e] [-b] [-n] [-s] expr [expr ...]"
 HELP = f"""{USAGE}
 
 positional arguments:
@@ -405,17 +432,21 @@ options:
   -n, --no-input    Ignore stdin and evaluate the expressions once (useful
                     under cron/subprocesses where stdin is a pipe but not
                     meant as input).
+  -s, --strict      Abort on the first row error instead of skipping the
+                    row. Guarantees aggregates (xargs) never silently cover
+                    partial data.
 """
 
 
 class Args:
-    __slots__ = ("expr", "no_input", "show_bool", "show_error")
+    __slots__ = ("expr", "no_input", "show_bool", "show_error", "strict")
 
     def __init__(self):
         self.expr = []
         self.show_error = False
         self.show_bool = False
         self.no_input = False
+        self.strict = False
 
 
 def usage_error(message):
@@ -446,6 +477,8 @@ def parse_args(argv):
             args.show_bool = True
         elif tok == "--no-input":
             args.no_input = True
+        elif tok == "--strict":
+            args.strict = True
         elif tok.startswith("--"):
             usage_error(f"unrecognized arguments: {tok}")
         else:
@@ -459,6 +492,8 @@ def parse_args(argv):
                     args.show_bool = True
                 elif char == "n":
                     args.no_input = True
+                elif char == "s":
+                    args.strict = True
                 else:
                     usage_error(f"unrecognized arguments: {tok}")
     if not args.expr:

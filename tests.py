@@ -46,7 +46,7 @@ def skipped(n):
 def test_noarg():
     py_(
         [],
-        want_err=b"""usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]
+        want_err=b"""usage: py [-h] [--version] [-e] [-b] [-n] [-s] expr [expr ...]
 py: error: the following arguments are required: expr
 """,
         want_returncode=2,
@@ -59,7 +59,7 @@ def test_help():
     py_(
         ["-h"],
         want_out_contains=[
-            b"usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]",
+            b"usage: py [-h] [--version] [-e] [-b] [-n] [-s] expr [expr ...]",
             b"Expression to apply to all inputs.",
             b"--show-error",
             b"--show-bool",
@@ -406,14 +406,66 @@ def test_auto_import_does_not_double_evaluate(tmp_path):
     assert marker.read_text() == "!"
 
 
+def test_strict_aborts_on_first_error():
+    py_(
+        ["-s", "int", "1 / x"],
+        in_=["0", "4", "8"],
+        want_err=b"py: row 0: ZeroDivisionError: division by zero\n"
+        b"py: --strict: aborting on first error\n",
+        want_returncode=1,
+    )
+
+    # Aggregates never print partial data under --strict.
+    py_(
+        ["--strict", "int", "1 / x", "xargs", "len"],
+        in_=["0", "4", "8"],
+        want_err=b"py: row 0: ZeroDivisionError: division by zero\n"
+        b"py: --strict: aborting on first error\n",
+        want_returncode=1,
+    )
+
+    # Rows before the first error still stream out.
+    py_(
+        ["-s", "int", "1 / x"],
+        in_=["4", "0", "8"],
+        want_out=b"0.25\n",
+        want_err=b"py: row 1: ZeroDivisionError: division by zero\n"
+        b"py: --strict: aborting on first error\n",
+        want_returncode=1,
+    )
+
+    # No errors: -s is a no-op.
+    py_(
+        ["-s", "int"],
+        in_=["1", "2"],
+        want_out=b"1\n2\n",
+    )
+
+
+def test_builtin_symbols():
+    # _-prefixed stdlib symbols work without any config file.
+    py_(
+        ["_pi"],
+        env={**os.environ, "PY_SYMBOL_FILEPATHS": "/nonexistent"},
+        want_out=b"3.141592653589793\n",
+    )
+
+
 def test_user_symbols():
     import tempfile
 
     with tempfile.NamedTemporaryFile("w", suffix=".py") as file:
-        print("__symbols__={'foo': 'bar'}", file=file, flush=True)
+        print("__symbols__={'foo': 'bar', '_pi': 'overridden'}", file=file, flush=True)
 
         py_(
             ["foo"],
             env={**os.environ, "PY_SYMBOL_FILEPATHS": file.name},
             want_out=b"bar\n",
+        )
+
+        # User symbols files override built-in defaults.
+        py_(
+            ["_pi"],
+            env={**os.environ, "PY_SYMBOL_FILEPATHS": file.name},
+            want_out=b"overridden\n",
         )

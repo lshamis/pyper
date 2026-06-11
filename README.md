@@ -84,7 +84,10 @@ $ uv tool install --editable .
 ```
 `pipx install` works the same way. Either installs a `py` command into `~/.local/bin`.
 
-Optionally copy the `extra_symbols.py` file into `~/.config/py/extra_symbols.py`. Doing so will first class symbols in common modules, prefixed by an `_`. For example:
+### Extra symbols:
+Public attributes of common stdlib modules (`collections`, `glob`, `math`,
+`os.path`, `pprint`, `random`, `string`, `textwrap`) are built in as
+first-class symbols, prefixed by an `_`:
 ```sh
 $ py _digits
 0123456789
@@ -93,8 +96,7 @@ $ py _random
 $ py _pi
 3.141592653589793
 $ ls | py _abspath
-/home/lshamis/github/lshamis/pyper/extra_symbols.py
-/home/lshamis/github/lshamis/pyper/py
+/home/lshamis/github/lshamis/pyper/pyper.py
 /home/lshamis/github/lshamis/pyper/README.md
 $ echo 'Hello, World!' | py '_shorten(x, width=12)'
 Hello, [...]
@@ -103,10 +105,24 @@ Hello,
 World!
 ```
 
+You can add your own (or override the built-ins) with a symbols file: a
+Python file defining a `__symbols__` dict. The default location is
+`~/.config/py/extra_symbols.py`; `PY_SYMBOL_FILEPATHS` accepts a
+colon-separated list of paths instead. For example:
+```python
+# ~/.config/py/extra_symbols.py
+import datetime
+
+__symbols__ = {
+    "_now": datetime.datetime.now,
+    "_yes": lambda x: f"yes: {x}",
+}
+```
+
 ### Help:
 ```sh
 $ py --help
-usage: py [-h] [--version] [-e] [-b] [-n] expr [expr ...]
+usage: py [-h] [--version] [-e] [-b] [-n] [-s] expr [expr ...]
 
 positional arguments:
   expr              Expression to apply to all inputs.
@@ -117,4 +133,5 @@ options:
   -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
   -b, --show-bool   Print bool values. Default is to use bool values as a filter.
   -n, --no-input    Ignore stdin and evaluate the expressions once.
+  -s, --strict      Abort on the first row error instead of skipping the row.
 ```
