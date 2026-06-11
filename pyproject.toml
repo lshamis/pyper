@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyper"
+name = "pyper-pipe"
 dynamic = ["version"]
 description = "Mix python expressions into bash pipes."
 readme = "README.md"

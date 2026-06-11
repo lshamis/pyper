@@ -79,7 +79,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pyper"
+name = "pyper-pipe"
 source = { editable = "." }
 
 [package.dev-dependencies]

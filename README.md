@@ -76,6 +76,7 @@ False
 
 ### Installation:
 ```sh
+$ uv tool install pyper-pipe        # from PyPI
 $ uv tool install git+https://github.com/lshamis/pyper
 ```
 or from a local checkout (editable, so repo edits take effect immediately):
