@@ -1,101 +1,103 @@
-# Python pipe helper:
-The `py` script makes bash hacking easier by allowing python expressions to be intermixed.
+# py — a Python pipe helper
 
-`py` takes expression arguments that will be executed on all piped strings.
+`py` makes bash hacking easier by letting you mix Python expressions into
+pipes. Each expression is evaluated once per input line, with the line bound
+to `x` (and its index to `i`).
 
-For example, you can help get pids for Xorg processes:
 ```sh
 $ ps aux | grep Xorg | py 'x.split()[1]'
 24723
 24992
 ```
 
-You can also chain multiple operations by providing multiple expressions:
+Expressions chain left to right:
 ```sh
 $ ps aux | grep Xorg | py 'x.split()' 'x[1]'
 24723
 24992
 ```
 
-For simple commands, where the evaluation if of the form `expr(value)` or `value(expr)`, you don't need to be explicit with the call. For example:
+When the evaluation is of the form `x.expr()` or `expr(x)`, the call can be
+left implicit:
 ```sh
 $ ps aux | grep Xorg | py split 'x[1]'
 24723
 24992
 ```
 
-You can convert from operating on one input at a time, to operating on the collection of inputs by using `xargs`:
+Modules import themselves — no `import` statements needed:
 ```sh
-$ ps aux | py split 'x[0]' xargs collections.Counter
-Counter({'root': 254, 'lshamis': 187, 'dbus': 2, 'td-agent': 2, 'avahi': 2, 'USER': 1, 'polkitd': 1, 'rtkit': 1, 'chrony': 1, 'colord': 1, 'nobody': 1, 'dnsmasq': 1, 'systemd+': 1})
+$ echo '{"user": "ada", "id": 7}' | py json.loads 'x["user"]'
+ada
+$ py 'math.tau'
+6.283185307179586
 ```
 
-And you can undo the process, converting a single collection to indepent inputs using `unxargs`:
+### xargs and unxargs:
+`xargs` switches from one-row-at-a-time to all-rows-as-one-collection;
+`unxargs` is its inverse, flattening a collection back into rows:
 ```sh
-$ ls pyper.py | py open readlines unxargs rstrip '"sys" in x'
-import sys
-        public_modules = {k: v for k, v in sys.modules.items() if not k.startswith("_")}
-        while not name or name in sys.modules:
-    if sys.stdin.isatty():
-    for i, x in enumerate(sys.stdin):
-    sys.exit(main())
+$ ps aux | py split 'x[0]' xargs collections.Counter 'x.most_common(3)'
+[('root', 334), ('lshamis', 161), ('systemd+', 3)]
+
+$ py 5 range unxargs
+0
+1
+2
+3
+4
 ```
 
-In the above example we used the boolean expression `'"sys" in x'` as a filter.
-Boolean expressions act as filters unless `--show-bool` is included:
+### Filtering:
+Boolean expressions act as filters (use `-b/--show-bool` to print the bools
+instead):
 ```sh
-$ ls / | py 'len(x) > 3'
-boot
-home
+$ ls / | py 'len(x) > 4'
+cdrom
 lib64
+lost+found
 media
-proc
-root
-sbin
-
-$ ls / | py -b 'len(x) > 3'
+swap.img
+$ ls / | py -b 'len(x) > 4'
 False
 False
 True
 False
-False
-True
-False
-True
-True
-False
-False
-True
-True
-False
-True
-False
-True
-False
+...
 ```
 
-### Installation:
+### Errors:
+A row whose expression raises is dropped from the output, with a summary on
+stderr and exit code 1. `-e` reports every error; `-s` aborts on the first
+one (so an aggregate can never silently cover partial data):
 ```sh
-$ uv tool install pyper-pipe        # from PyPI
-$ uv tool install git+https://github.com/lshamis/pyper
+$ seq 3 | py '1/(int(x)-2)'
+-1.0
+1.0
+py: skipped 1 row(s) with errors; rerun with -e to see them.
+
+$ seq 3 | py -e '1/(int(x)-2)'
+-1.0
+1.0
+py: row 1: ZeroDivisionError: division by zero
+
+$ seq 3 | py -s '1/(int(x)-2)'
+-1.0
+py: row 1: ZeroDivisionError: division by zero
+py: --strict: aborting on first error
 ```
-or from a local checkout (editable, so repo edits take effect immediately):
-```sh
-$ uv tool install --editable .
-```
-`pipx install` works the same way. Either installs a `py` command into `~/.local/bin`.
+Errors are diagnostics, not data: they only ever go to stderr, so stdout
+stays safe to pipe onward.
 
 ### Extra symbols:
 Public attributes of common stdlib modules (`collections`, `glob`, `math`,
 `os.path`, `pprint`, `random`, `string`, `textwrap`) are built in as
 first-class symbols, prefixed by an `_`:
 ```sh
-$ py _digits
-0123456789
-$ py _random
-0.48314627566684964
 $ py _pi
 3.141592653589793
+$ py _digits
+0123456789
 $ ls | py _abspath
 /home/lshamis/github/lshamis/pyper/pyper.py
 /home/lshamis/github/lshamis/pyper/README.md
@@ -105,6 +107,17 @@ $ echo 'Hello, World!' | py '_wrap(x, width=12)' unxargs
 Hello,
 World!
 ```
+
+### Installation:
+```sh
+$ uv tool install pyper-pipe
+```
+or from a checkout (editable, so repo edits take effect immediately):
+```sh
+$ uv tool install --editable .
+```
+`pipx install` works the same way. Either installs a `py` command into
+`~/.local/bin`.
 
 ### Help:
 ```sh
@@ -117,8 +130,14 @@ positional arguments:
 options:
   -h, --help        show this help message and exit
   --version         show program's version number and exit
-  -e, --show-error  Report each raised exception on stderr. Default is to skip, with a summary on stderr.
-  -b, --show-bool   Print bool values. Default is to use bool values as a filter.
-  -n, --no-input    Ignore stdin and evaluate the expressions once.
-  -s, --strict      Abort on the first row error instead of skipping the row.
+  -e, --show-error  Report each raised exception on stderr. Default is to
+                    skip, with a summary on stderr.
+  -b, --show-bool   Print bool values. Default is to use bool values as a
+                    filter.
+  -n, --no-input    Ignore stdin and evaluate the expressions once (useful
+                    under cron/subprocesses where stdin is a pipe but not
+                    meant as input).
+  -s, --strict      Abort on the first row error instead of skipping the
+                    row. Guarantees aggregates (xargs) never silently cover
+                    partial data.
 ```
