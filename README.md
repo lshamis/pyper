@@ -105,20 +105,6 @@ Hello,
 World!
 ```
 
-You can add your own (or override the built-ins) with a symbols file: a
-Python file defining a `__symbols__` dict. The default location is
-`~/.config/py/extra_symbols.py`; `PY_SYMBOL_FILEPATHS` accepts a
-colon-separated list of paths instead. For example:
-```python
-# ~/.config/py/extra_symbols.py
-import datetime
-
-__symbols__ = {
-    "_now": datetime.datetime.now,
-    "_yes": lambda x: f"yes: {x}",
-}
-```
-
 ### Help:
 ```sh
 $ py --help

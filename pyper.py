@@ -172,42 +172,22 @@ class Context:
                     break
                 obj = nxt
 
-    def _add_symbols(self, symbols):
-        self._symbols.update(symbols)
-        if self._base is not None:
-            # Update in place: eval_code may hold a reference to the dict.
-            self._base.update(symbols)
-
-    def load_symbols(self, path, index):
-        import importlib.util
-
-        module_name = f"_py_symbols_{index}"
-        while module_name in sys.modules:
-            module_name += "_"
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self._add_symbols(module.__symbols__)
-
     def ensure_extra_symbols(self):
-        """Load extra symbols lazily, on the first unresolvable name.
+        """Load the built-in `_` symbols lazily, on the first unresolvable
+        name.
 
-        Built-in defaults first, then user symbols files (which override
-        them). Building the defaults imports several stdlib modules (~20ms),
-        which would otherwise be paid on every invocation, even for
-        expressions made purely of builtins.
+        Building them imports several stdlib modules (~20ms), which would
+        otherwise be paid on every invocation, even for expressions made
+        purely of builtins.
         """
         if self._extra_symbols_loaded:
             return
         self._extra_symbols_loaded = True
-        self._add_symbols(default_symbols())
-        env_path = os.environ.get(
-            "PY_SYMBOL_FILEPATHS", "~/.config/py/extra_symbols.py"
-        )
-        for index, path in enumerate(env_path.split(":")):
-            path = os.path.expanduser(path)
-            if os.path.exists(path):
-                self.load_symbols(path, index)
+        symbols = default_symbols()
+        self._symbols.update(symbols)
+        if self._base is not None:
+            # Update in place: eval_code may hold a reference to the dict.
+            self._base.update(symbols)
 
 
 _KEEP = object()

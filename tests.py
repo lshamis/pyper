@@ -1,7 +1,6 @@
 # To run this test:
 # $ pytest -vvv --cov=. ./tests.py
 
-import os
 import pty
 import subprocess
 import sys
@@ -443,29 +442,12 @@ def test_strict_aborts_on_first_error():
 
 
 def test_builtin_symbols():
-    # _-prefixed stdlib symbols work without any config file.
     py_(
         ["_pi"],
-        env={**os.environ, "PY_SYMBOL_FILEPATHS": "/nonexistent"},
         want_out=b"3.141592653589793\n",
     )
 
-
-def test_user_symbols():
-    import tempfile
-
-    with tempfile.NamedTemporaryFile("w", suffix=".py") as file:
-        print("__symbols__={'foo': 'bar', '_pi': 'overridden'}", file=file, flush=True)
-
-        py_(
-            ["foo"],
-            env={**os.environ, "PY_SYMBOL_FILEPATHS": file.name},
-            want_out=b"bar\n",
-        )
-
-        # User symbols files override built-in defaults.
-        py_(
-            ["_pi"],
-            env={**os.environ, "PY_SYMBOL_FILEPATHS": file.name},
-            want_out=b"overridden\n",
-        )
+    py_(
+        ['"a/b"', '_basename(_join(x, "c.txt"))'],
+        want_out=b"c.txt\n",
+    )
