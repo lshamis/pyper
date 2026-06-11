@@ -1,22 +1,17 @@
 # TODO
 
 Current state (2026-06-10): v0.1.0, installed via `uv tool install -e .`.
-33 tests (`uv run pytest`), ruff clean (`uv run ruff check`). Startup ~34ms
+35 tests (`uv run pytest`), ruff clean (`uv run ruff check`). Startup ~34ms
 for builtin-only expressions; ~0.3s per 100k rows of `int(x)+1`.
 
 ## Open
 
 ### P3 — features
-- [ ] `--strict` flag: any row error aborts (or poisons aggregates) instead of
-      dropping the row. The permissive default can make a partial xargs
-      aggregate look complete to a downstream tool that ignores exit codes.
 - [ ] Error rows that pass through `unxargs` lose their row index (`i` is
       reset); consider carrying source-row provenance for better -e messages.
 - [ ] First-class JSON: `py json.loads 'x["field"]'` works today, but a
       shorthand for per-line JSON in/out would cover a very common case.
       (Don't use `-j`; that letter is burned, see Rejected.)
-- [ ] Install `extra_symbols.py` as package data with a post-install hint, so
-      it doesn't need to be hand-copied to `~/.config/py/`.
 
 ### P4 — project hygiene
 - [ ] CI (GitHub Actions): pytest across supported Pythons (3.9–3.14) + ruff
@@ -66,6 +61,11 @@ for builtin-only expressions; ~0.3s per 100k rows of `int(x)+1`.
       using only builtins (obscure; `_`-prefixed symbols unaffected).
 
 ### Features / hygiene
+- [x] `-s/--strict`: abort on the first row error (reported on stderr, exit
+      1); aggregates can never silently cover partial data.
+- [x] Built-in `_`-prefixed symbols: no more hand-copied
+      ~/.config/py/extra_symbols.py; symbols files are now purely optional
+      user extensions that override the built-ins.
 - [x] `-n/--no-input`: ignore stdin, evaluate once (cron/subprocess case).
 - [x] `--version`, single-sourced from `pyper.__version__`.
 - [x] Packaged: pyproject + console-script entry point (`uv tool install`),
