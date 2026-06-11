@@ -1,7 +1,7 @@
 # TODO
 
 Current state (2026-06-10): v0.1.0, installed via `uv tool install -e .`.
-35 tests (`uv run pytest`), ruff clean (`uv run ruff check`). Startup ~34ms
+34 tests (`uv run pytest`), ruff clean (`uv run ruff check`). Startup ~34ms
 for builtin-only expressions; ~0.3s per 100k rows of `int(x)+1`.
 
 ## Open
@@ -56,16 +56,16 @@ for builtin-only expressions; ~0.3s per 100k rows of `int(x)+1`.
       xargs symbol merge.
 - [x] Startup 75ms -> 34ms (builtin-only expressions): hand-rolled arg parser
       (argparse + transitive re/enum cost ~30ms), cold-path imports inlined,
-      symbols files loaded lazily on first unresolvable name. Caveat: a
-      symbols file that shadows a *builtin* name won't load for an expression
-      using only builtins (obscure; `_`-prefixed symbols unaffected).
+      `_` symbols built lazily on first unresolvable name.
 
 ### Features / hygiene
 - [x] `-s/--strict`: abort on the first row error (reported on stderr, exit
       1); aggregates can never silently cover partial data.
-- [x] Built-in `_`-prefixed symbols: no more hand-copied
-      ~/.config/py/extra_symbols.py; symbols files are now purely optional
-      user extensions that override the built-ins.
+- [x] Built-in `_`-prefixed symbols replace the extra_symbols.py config file
+      entirely; the PY_SYMBOL_FILEPATHS user-symbols-file mechanism was then
+      dropped too (unused in practice, one less concept to learn). If custom
+      symbols ever come back, prefer something zero-config like reading a
+      single well-known file with plain assignments.
 - [x] `-n/--no-input`: ignore stdin, evaluate once (cron/subprocess case).
 - [x] `--version`, single-sourced from `pyper.__version__`.
 - [x] Packaged: pyproject + console-script entry point (`uv tool install`),
